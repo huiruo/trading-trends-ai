@@ -1,0 +1,7 @@
+torch>=2.0.0
+flask
+pandas
+scikit-learn
+flask
+torch
+numpy
