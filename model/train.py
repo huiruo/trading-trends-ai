@@ -15,8 +15,11 @@ from config import MODEL_PATH, WINDOW_SIZE
 
 def train(csv_path: str, epochs=20, lr=0.001, batch_size=64):
     df = load_and_preprocess(csv_path)
-    X, y = create_sequences(df)
+    X, y = create_sequences(df, window_size=WINDOW_SIZE)
     
+    print(f"CSV 原始K线数据条数: {len(df)}")
+    print(f"生成的训练样本序列数: {len(X)}")
+
     X_tensor = torch.tensor(X, dtype=torch.float32)
     y_tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(-1)
 

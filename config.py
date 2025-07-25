@@ -5,7 +5,7 @@ MODEL_PATH = "model/lstm_model.pt"
 
 # 训练窗口大小（即时间序列长度）
 # 例如用前48小时预测下一个小时
-WINDOW_SIZE = 4
+WINDOW_SIZE = 20
 
 # K线输入特征列（可以是 open/high/low/close/volume 等）
 FEATURE_COLUMNS = ["open", "high", "low", "close", "volume"]

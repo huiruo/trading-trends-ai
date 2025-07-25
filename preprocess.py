@@ -7,8 +7,8 @@ from config import WINDOW_SIZE, FEATURE_COLUMNS, TARGET_COLUMN
 
 scaler = MinMaxScaler()
 
-def load_and_preprocess(csv_path: str):
-    df = pd.read_csv(csv_path)
+def load_and_preprocess(df: pd.DataFrame):
+    df = df.copy()
     df[FEATURE_COLUMNS] = scaler.fit_transform(df[FEATURE_COLUMNS])
     return df
 
