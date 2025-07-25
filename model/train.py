@@ -1,12 +1,17 @@
 # 训练脚本 model/train.py
 # 用于训练模型并保存权重：
+# model/train.py
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from preprocess import load_and_preprocess, create_sequences
 from model.model import LSTMModel
 from config import MODEL_PATH, WINDOW_SIZE
-import os
+
 
 def train(csv_path: str, epochs=20, lr=0.001, batch_size=64):
     df = load_and_preprocess(csv_path)
@@ -19,19 +24,34 @@ def train(csv_path: str, epochs=20, lr=0.001, batch_size=64):
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     model = LSTMModel(input_size=X.shape[2])
+
+    # 加载已有权重（如果存在）
+    if os.path.exists(MODEL_PATH):
+        print(f"🔄 Loading existing model weights from {MODEL_PATH} for continued training.")
+        model.load_state_dict(torch.load(MODEL_PATH))
+    else:
+        print("⚠️ No existing model found, training from scratch.")
+
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     for epoch in range(epochs):
+        total_loss = 0
         for xb, yb in dataloader:
             pred = model(xb)
             loss = loss_fn(pred, yb)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            total_loss += loss.item()
 
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {loss.item():.6f}")
+        avg_loss = total_loss / len(dataloader)
+        print(f"Epoch {epoch+1}/{epochs}, Avg Loss: {avg_loss:.6f}")
 
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
     torch.save(model.state_dict(), MODEL_PATH)
-    print(f"Model saved to {MODEL_PATH}")
+    print(f"✅ Model saved to {MODEL_PATH}")
+
+if __name__ == "__main__":
+    # 默认从 dataset/btc_1h.csv 训练
+    train("dataset/btc_1h.csv")
