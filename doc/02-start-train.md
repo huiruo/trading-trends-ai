@@ -9,7 +9,8 @@ ModuleNotFoundError: No module named 'model.model'; 'model' is not a package
 
 (venv) ➜  trading-trends-ai git:(main) ✗ python -m model.train
 
-python -m model.train
+# 优先用这个
+python -m model.train_improved
 ```
 
 ## 是否加载已有训练

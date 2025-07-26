@@ -6,6 +6,18 @@ from sklearn.preprocessing import MinMaxScaler
 import pickle
 import os
 from config import WINDOW_SIZE, FEATURE_COLUMNS, TARGET_COLUMN
+# 新增：如果有技术指标，优先用改进版配置
+try:
+    from config_improved import FEATURE_COLUMNS as IMPROVED_FEATURE_COLUMNS
+    FEATURE_COLUMNS = IMPROVED_FEATURE_COLUMNS
+except ImportError:
+    pass
+# 新增：引入技术指标
+try:
+    from technical_indicators import add_technical_indicators
+except ImportError:
+    def add_technical_indicators(df):
+        return df
 
 # 全局scaler，用于保存和加载
 scaler = MinMaxScaler()
@@ -13,23 +25,21 @@ SCALER_PATH = "model/scaler.pkl"
 
 def load_and_preprocess(df_or_path):
     """
-    加载并预处理数据
-    参数可以是DataFrame或文件路径
+    加载并预处理数据，支持DataFrame或文件路径。
+    先加技术指标，再标准化所有特征。
     """
     if isinstance(df_or_path, str):
-        # 如果是文件路径，先加载数据
         df = load_klines_from_csv(df_or_path)
     else:
         df = df_or_path.copy()
-    
-    # 标准化特征
+    # 先加技术指标
+    df = add_technical_indicators(df)
+    # 用所有特征做标准化
     df[FEATURE_COLUMNS] = scaler.fit_transform(df[FEATURE_COLUMNS])
-    
     # 保存scaler
     os.makedirs(os.path.dirname(SCALER_PATH), exist_ok=True)
     with open(SCALER_PATH, 'wb') as f:
         pickle.dump(scaler, f)
-    
     return df
 
 def load_scaler():

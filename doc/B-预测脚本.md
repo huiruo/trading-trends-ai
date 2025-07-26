@@ -13,6 +13,8 @@
 
 ## 执行
 ```bash
+# 优先用这个
+python -m model.predict_improved
 python -m model.predict
 
 python model/predict.py

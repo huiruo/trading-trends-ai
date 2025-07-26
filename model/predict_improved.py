@@ -1,5 +1,4 @@
-# model/predict.py
-# 用于加载模型并进行下一时刻预测：
+# model/predict_improved.py - 改进版预测脚本
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -8,18 +7,33 @@ import torch
 import pandas as pd
 from model.model import LSTMModel
 from preprocess import load_and_preprocess, create_sequences, load_scaler, inverse_transform_close
-from config import MODEL_PATH, WINDOW_SIZE
+from technical_indicators import add_technical_indicators
+from config_improved import *
 
-def predict_next_candle_direction(df: pd.DataFrame):
+def predict_next_candle_improved(df: pd.DataFrame):
     # 加载已保存的scaler
     loaded_scaler = load_scaler()
     if loaded_scaler is None:
-        print("⚠️ No scaler found. Please train the model first.")
+        print("⚠️ No scaler found. 请先重新训练模型 (python -m model.train_improved)")
         return None
     
+    # 检查scaler特征名与当前特征名是否一致
+    scaler_features = getattr(loaded_scaler, 'feature_names_in_', None)
+    if scaler_features is not None:
+        from config_improved import FEATURE_COLUMNS
+        if list(scaler_features) != list(FEATURE_COLUMNS):
+            print("❌ 检测到 scaler.pkl 特征与当前 FEATURE_COLUMNS 不一致！")
+            print(f"scaler特征: {list(scaler_features)}")
+            print(f"当前特征: {list(FEATURE_COLUMNS)}")
+            print("请删除 model/scaler.pkl 并重新训练模型: python -m model.train_improved")
+            return None
+    
+    # 添加技术指标
+    df_with_indicators = add_technical_indicators(df)
+    
     # 使用已保存的scaler进行标准化
-    df_processed = df.copy()
-    df_processed[['open', 'high', 'low', 'close', 'volume']] = loaded_scaler.transform(df[['open', 'high', 'low', 'close', 'volume']])
+    df_processed = df_with_indicators.copy()
+    df_processed[FEATURE_COLUMNS] = loaded_scaler.transform(df_with_indicators[FEATURE_COLUMNS])
 
     X, y = create_sequences(df_processed, window_size=WINDOW_SIZE)
     
@@ -30,7 +44,7 @@ def predict_next_candle_direction(df: pd.DataFrame):
     X_latest = X[-1]
     X_tensor = torch.tensor(X_latest, dtype=torch.float32).unsqueeze(0)
 
-    model = LSTMModel(input_size=X_tensor.shape[2])
+    model = LSTMModel(input_size=X_tensor.shape[2], hidden_size=128, num_layers=3)
     model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')))
     model.eval()
 
@@ -75,11 +89,11 @@ if __name__ == "__main__":
     print(df.iloc[-1][['timestamp', 'open', 'high', 'low', 'close', 'volume']])
 
     # 预测下一根K线
-    result = predict_next_candle_direction(df)
+    result = predict_next_candle_improved(df)
     if result:
         print("\n【预测的下一根K线】")
         print(result)
-        # 如果数据集里有真实的下一根K线（比如你有未来数据），也打印出来
+        # 如果数据集里有真实的下一根K线，也打印出来
         next_time = pd.to_datetime(result["预测时间"])
         real_next = df[df['timestamp'] == next_time]
         if not real_next.empty:
@@ -89,4 +103,4 @@ if __name__ == "__main__":
             print("\n【真实的下一根K线】")
             print("数据集中没有下一根K线（可能是最新一根）")
     else:
-        print("预测失败，请先训练模型")
+        print("预测失败，请先训练模型") 
