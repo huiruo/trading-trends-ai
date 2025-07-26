@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from preprocess import load_and_preprocess, create_sequences
 from model.model import LSTMModel
 from config import MODEL_PATH, WINDOW_SIZE
-
+from config import DATA_PATH
 
 def train(csv_path: str, epochs=20, lr=0.001, batch_size=64):
     df = load_and_preprocess(csv_path)
@@ -56,5 +56,5 @@ def train(csv_path: str, epochs=20, lr=0.001, batch_size=64):
     print(f"✅ Model saved to {MODEL_PATH}")
 
 if __name__ == "__main__":
-    # 默认从 dataset/btc_1h.csv 训练
-    train("dataset/btc_1h.csv")
+    # 默认从配置文件指定的数据路径训练
+    train(DATA_PATH)

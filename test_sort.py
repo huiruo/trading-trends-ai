@@ -3,7 +3,8 @@ from preprocess import load_klines_from_csv
 
 # python -m test_sort.py
 # 测试数据排序
-df = load_klines_from_csv("dataset/btc_1h.csv")
+from config_improved import DATA_PATH
+df = load_klines_from_csv(DATA_PATH)
 
 print("数据排序验证:")
 print(f"总数据条数: {len(df)}")

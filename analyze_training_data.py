@@ -9,7 +9,8 @@ def analyze_training_data():
     """分析训练数据的最后一段，检查是否有极端变化"""
     
     # 加载数据
-    df = pd.read_csv("dataset/btc_1h.csv")
+    from config_improved import DATA_PATH
+    df = pd.read_csv(DATA_PATH)
     df = df.rename(columns={
         'closeTime': 'timestamp',
         'open': 'open',

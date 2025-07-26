@@ -9,7 +9,9 @@ LEARNING_RATE = 0.0001
 BATCH_SIZE = 32
 
 # 数据路径
-DATA_PATH = "dataset/btc_1h.csv"
+# DATA_PATH = "dataset/btc_1h.csv"
+# DATA_PATH = "dataset/btc_1hB.csv"
+DATA_PATH = "dataset/btc_1hC.csv"
 
 # 基础特征 - 只保留最核心的OHLCV
 BASE_FEATURES = ['open', 'high', 'low', 'close', 'volume']

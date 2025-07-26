@@ -143,7 +143,8 @@ def create_feature_visualization(df):
 
 if __name__ == "__main__":
     # 加载数据
-    df = pd.read_csv("dataset/btc_1h.csv")
+    from config_improved import DATA_PATH
+    df = pd.read_csv(DATA_PATH)
     df = df.rename(columns={
         'closeTime': 'timestamp',
         'open': 'open',

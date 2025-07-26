@@ -88,7 +88,7 @@ def predict_next_candle_improved(df: pd.DataFrame):
     }
 
 if __name__ == "__main__":
-    df = pd.read_csv("dataset/btc_1h.csv")
+    df = pd.read_csv(DATA_PATH)
     # 重命名列以匹配预处理函数
     df = df.rename(columns={
         'closeTime': 'timestamp',
