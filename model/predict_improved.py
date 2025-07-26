@@ -57,6 +57,18 @@ def predict_next_candle_improved(df: pd.DataFrame):
     # 获取实际的最后收盘价
     last_close = df.iloc[-1]['close']
 
+    # 限制预测幅度，防止极端值
+    max_change_ratio = 0.05  # 最大5%的涨跌幅
+    pred_change_ratio = (pred_close - last_close) / last_close
+    
+    if abs(pred_change_ratio) > max_change_ratio:
+        # 如果预测幅度过大，限制在合理范围内
+        if pred_change_ratio > 0:
+            pred_close = last_close * (1 + max_change_ratio)
+        else:
+            pred_close = last_close * (1 - max_change_ratio)
+        print(f"⚠️ 预测幅度过大({pred_change_ratio*100:.2f}%)，已限制在±{max_change_ratio*100}%范围内")
+
     direction = "涨" if pred_close > last_close else "跌"
 
     last_close_time = pd.to_datetime(df.iloc[-1]["timestamp"])

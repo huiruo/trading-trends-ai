@@ -81,6 +81,9 @@ MACD
 自动计算技术指标
 更完善的数据预处理
 
+git 提交结果：
+ea63aa175ec290878e95ae1ce2e1a93b4d4ba139
+
 ## Sat Jul 26 18:19:40 CST 2025
 ```
 (venv) ➜  trading-trends-ai git:(main) ✗ python -m model.predict_improved

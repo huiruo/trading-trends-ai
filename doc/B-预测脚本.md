@@ -1,5 +1,4 @@
-
-2.1 预测脚本 model/predict.py
+## 2.1 预测脚本 model/predict.py
 当前模型输出是预测收盘价（连续值），你想要涨跌分类，可以新增一段涨跌判断逻辑
 
 需要取最新一条完整窗口数据（比如最新4条）作为输入，预测下一小时收盘价
@@ -15,7 +14,7 @@
 ```bash
 # 优先用这个
 python -m model.predict_improved
-python -m model.predict
 
+python -m model.predict
 python model/predict.py
 ```

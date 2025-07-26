@@ -1,30 +1,25 @@
-# config_improved.py - 改进版配置
+# config_improved.py
+import os
 
-# 模型保存路径
+# 模型配置
 MODEL_PATH = "model/lstm_model_improved.pt"
-
-# 训练窗口大小（增加到48小时）
 WINDOW_SIZE = 48
-
-# 基础特征列
-BASE_FEATURES = ["open", "high", "low", "close", "volume"]
-
-# 技术指标特征（需要计算）
-TECHNICAL_FEATURES = [
-    "ema_12", "ema_26", "rsi_14", "macd", "macd_signal", "macd_hist",
-    "bb_upper", "bb_middle", "bb_lower", "bb_width", "bb_position"
-]
-
-# 所有特征列
-FEATURE_COLUMNS = BASE_FEATURES + TECHNICAL_FEATURES
-
-# 预测目标列
-TARGET_COLUMN = "close"
-
-# 训练参数
 TRAIN_EPOCHS = 50
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.0001
 BATCH_SIZE = 32
 
 # 数据路径
-DATA_PATH = "dataset/btc_1h.csv" 
+DATA_PATH = "dataset/btc_1h.csv"
+
+# 基础特征 - 只保留最核心的OHLCV
+BASE_FEATURES = ['open', 'high', 'low', 'close', 'volume']
+
+# 技术指标特征 - 只保留最常用、最核心的指标
+TECHNICAL_FEATURES = [
+    'rsi_14',         # RSI指标 (最常用的超买超卖指标)
+    'bb_position',    # 布林带位置 (价格在布林带中的位置)
+    'close_open_ratio' # 收盘开盘比 (K线涨跌幅度)
+]
+
+# 合并所有特征 - 总共只有8个特征
+FEATURE_COLUMNS = BASE_FEATURES + TECHNICAL_FEATURES 
