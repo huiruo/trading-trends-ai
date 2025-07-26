@@ -56,3 +56,38 @@ Epoch 20/20, Avg Loss: 0.001201
 损失从第一轮的0.355711降低到最后一轮的0.001201，说明模型在不断学习，误差在减少，训练效果不错。
 
 最后打印的✅ Model saved to model/lstm_model.pt表示训练完成后，模型参数成功保存到了model/lstm_model.pt文件，方便后续加载使用。
+
+## cursor
+```
+(venv) ➜  trading-trends-ai git:(main) ✗ python -m model.train
+CSV 原始K线数据条数: 607
+生成的训练样本序列数: 587
+🔄 Loading existing model weights from model/lstm_model.pt for continued training.
+Epoch 1/20, Avg Loss: 0.002962
+Epoch 2/20, Avg Loss: 0.001639
+Epoch 3/20, Avg Loss: 0.001566
+Epoch 4/20, Avg Loss: 0.001452
+Epoch 5/20, Avg Loss: 0.001427
+Epoch 6/20, Avg Loss: 0.001270
+Epoch 7/20, Avg Loss: 0.001308
+Epoch 8/20, Avg Loss: 0.001195
+Epoch 9/20, Avg Loss: 0.001136
+Epoch 10/20, Avg Loss: 0.001027
+Epoch 11/20, Avg Loss: 0.001028
+Epoch 12/20, Avg Loss: 0.000924
+Epoch 13/20, Avg Loss: 0.001024
+Epoch 14/20, Avg Loss: 0.001055
+Epoch 15/20, Avg Loss: 0.001120
+Epoch 16/20, Avg Loss: 0.001091
+Epoch 17/20, Avg Loss: 0.001120
+Epoch 18/20, Avg Loss: 0.001204
+Epoch 19/20, Avg Loss: 0.000894
+Epoch 20/20, Avg Loss: 0.000950
+✅ Model saved to model/lstm_model.pt.  结果对吗
+
+✅ 训练成功：
+数据条数：607条K线数据
+训练样本：587个序列（607 - 20 = 587，窗口大小为20）
+Loss从0.002962降到0.000950，收敛良好
+模型已保存
+```

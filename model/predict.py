@@ -7,14 +7,25 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import torch
 import pandas as pd
 from model.model import LSTMModel
-# from preprocess import preprocess, create_sequences
-from preprocess import load_and_preprocess, create_sequences
+from preprocess import load_and_preprocess, create_sequences, load_scaler, inverse_transform_close
 from config import MODEL_PATH, WINDOW_SIZE
 
 def predict_next_candle_direction(df: pd.DataFrame):
-    df_processed = load_and_preprocess(df)
+    # 加载已保存的scaler
+    loaded_scaler = load_scaler()
+    if loaded_scaler is None:
+        print("⚠️ No scaler found. Please train the model first.")
+        return None
+    
+    # 使用已保存的scaler进行标准化
+    df_processed = df.copy()
+    df_processed[['open', 'high', 'low', 'close', 'volume']] = loaded_scaler.transform(df[['open', 'high', 'low', 'close', 'volume']])
 
     X, y = create_sequences(df_processed, window_size=WINDOW_SIZE)
+    
+    if len(X) == 0:
+        print("⚠️ Not enough data for prediction. Need at least {} data points.".format(WINDOW_SIZE + 1))
+        return None
 
     X_latest = X[-1]
     X_tensor = torch.tensor(X_latest, dtype=torch.float32).unsqueeze(0)
@@ -24,13 +35,17 @@ def predict_next_candle_direction(df: pd.DataFrame):
     model.eval()
 
     with torch.no_grad():
-        pred_close = model(X_tensor).item()
+        pred_close_normalized = model(X_tensor).item()
 
-    last_close = y[-1]
+    # 反向转换预测的收盘价
+    pred_close = inverse_transform_close(pred_close_normalized)
+    
+    # 获取实际的最后收盘价
+    last_close = df.iloc[-1]['close']
 
     direction = "涨" if pred_close > last_close else "跌"
 
-    last_close_time = pd.to_datetime(df.iloc[-1]["closeTime"], unit='ms')
+    last_close_time = pd.to_datetime(df.iloc[-1]["timestamp"])
     pred_time = last_close_time + pd.Timedelta(hours=1)
 
     return {
@@ -38,9 +53,25 @@ def predict_next_candle_direction(df: pd.DataFrame):
         "上次收盘价": last_close,
         "预测涨跌": direction,
         "预测时间": pred_time.strftime("%Y-%m-%d %H:%M:%S"),
+        "涨跌幅度": f"{((pred_close - last_close) / last_close * 100):.2f}%"
     }
 
 if __name__ == "__main__":
     df = pd.read_csv("dataset/btc_1h.csv")
+    # 重命名列以匹配预处理函数
+    df = df.rename(columns={
+        'closeTime': 'timestamp',
+        'open': 'open',
+        'high': 'high',
+        'low': 'low',
+        'close': 'close',
+        'volume': 'volume'
+    })
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    df = df.sort_values(by='timestamp')
+    
     result = predict_next_candle_direction(df)
-    print(result)
+    if result:
+        print(result)
+    else:
+        print("预测失败，请先训练模型")
