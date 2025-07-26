@@ -44,30 +44,35 @@ def predict_next_candle_improved(df: pd.DataFrame):
     X_latest = X[-1]
     X_tensor = torch.tensor(X_latest, dtype=torch.float32).unsqueeze(0)
 
-    model = LSTMModel(input_size=X_tensor.shape[2], hidden_size=128, num_layers=3)
+    model = LSTMModel(input_size=X_tensor.shape[2], hidden_size=16, num_layers=1)
     model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')))
     model.eval()
 
     with torch.no_grad():
-        pred_close_normalized = model(X_tensor).item()
+        pred_normalized = model(X_tensor).item()
 
-    # 反向转换预测的收盘价
-    pred_close = inverse_transform_close(pred_close_normalized)
+    # 检查是否使用相对变化目标
+    try:
+        from config_improved import USE_RELATIVE_CHANGE, MAX_CHANGE_RATIO
+    except ImportError:
+        USE_RELATIVE_CHANGE = False
+        MAX_CHANGE_RATIO = 0.05
     
-    # 获取实际的最后收盘价
-    last_close = df.iloc[-1]['close']
-
-    # 限制预测幅度，防止极端值
-    max_change_ratio = 0.05  # 最大5%的涨跌幅
-    pred_change_ratio = (pred_close - last_close) / last_close
-    
-    if abs(pred_change_ratio) > max_change_ratio:
-        # 如果预测幅度过大，限制在合理范围内
-        if pred_change_ratio > 0:
-            pred_close = last_close * (1 + max_change_ratio)
-        else:
-            pred_close = last_close * (1 - max_change_ratio)
-        print(f"⚠️ 预测幅度过大({pred_change_ratio*100:.2f}%)，已限制在±{max_change_ratio*100}%范围内")
+    if USE_RELATIVE_CHANGE:
+        # 从归一化的相对变化转换为实际变化幅度
+        pred_change_ratio = (pred_normalized * 2 * MAX_CHANGE_RATIO) - MAX_CHANGE_RATIO
+        
+        # 计算预测的收盘价
+        last_close = df.iloc[-1]['close']
+        pred_close = last_close * (1 + pred_change_ratio)
+        
+        print(f"🔍 预测变化幅度: {pred_change_ratio*100:.2f}%")
+    else:
+        # 使用绝对价格预测
+        pred_close = inverse_transform_close(pred_normalized)
+        last_close = df.iloc[-1]['close']
+        pred_change_ratio = (pred_close - last_close) / last_close
+        print(f"🔍 原始预测变化幅度: {pred_change_ratio*100:.2f}%")
 
     direction = "涨" if pred_close > last_close else "跌"
 

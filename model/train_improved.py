@@ -55,7 +55,7 @@ def train_improved(csv_path: str, epochs=TRAIN_EPOCHS, lr=LEARNING_RATE, batch_s
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     # 创建改进的模型
-    model = LSTMModel(input_size=X.shape[2], hidden_size=128, num_layers=3)
+    model = LSTMModel(input_size=X.shape[2], hidden_size=16, num_layers=1)
 
     # 加载已有权重（如果存在）
     if os.path.exists(MODEL_PATH):

@@ -2,7 +2,7 @@
 # 用于读取 CSV、标准化特征、构造时间窗口等处理：
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import RobustScaler
 import pickle
 import os
 from config import WINDOW_SIZE, FEATURE_COLUMNS, TARGET_COLUMN
@@ -20,7 +20,7 @@ except ImportError:
         return df
 
 # 全局scaler，用于保存和加载
-scaler = MinMaxScaler()
+scaler = RobustScaler()
 SCALER_PATH = "model/scaler.pkl"
 
 def load_and_preprocess(df_or_path):
@@ -51,11 +51,40 @@ def load_scaler():
 
 def create_sequences(df: pd.DataFrame, window_size=WINDOW_SIZE):
     X, y = [], []
+    
+    # 检查是否使用相对变化目标
+    try:
+        from config_improved import USE_RELATIVE_CHANGE, MAX_CHANGE_RATIO
+    except ImportError:
+        USE_RELATIVE_CHANGE = False
+        MAX_CHANGE_RATIO = 0.05
+    
     for i in range(len(df) - window_size):
         x_seq = df[FEATURE_COLUMNS].iloc[i:i+window_size].values
-        y_target = df[TARGET_COLUMN].iloc[i + window_size]
+        
+        if USE_RELATIVE_CHANGE:
+            # 使用相对变化作为目标
+            current_close = df[TARGET_COLUMN].iloc[i + window_size - 1]  # 当前收盘价
+            next_close = df[TARGET_COLUMN].iloc[i + window_size]         # 下一个收盘价
+            
+            # 防止除零错误
+            if current_close == 0:
+                change_ratio = 0
+            else:
+                change_ratio = (next_close - current_close) / current_close
+            
+            # 限制变化幅度在合理范围内
+            change_ratio = max(-MAX_CHANGE_RATIO, min(MAX_CHANGE_RATIO, change_ratio))
+            
+            # 归一化到0-1范围
+            y_target = (change_ratio + MAX_CHANGE_RATIO) / (2 * MAX_CHANGE_RATIO)
+        else:
+            # 使用绝对价格作为目标
+            y_target = df[TARGET_COLUMN].iloc[i + window_size]
+        
         X.append(x_seq)
         y.append(y_target)
+    
     return np.array(X), np.array(y)
 
 def inverse_transform_close(value: float):
