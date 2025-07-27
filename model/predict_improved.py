@@ -44,30 +44,71 @@ def predict_next_candle_improved(df: pd.DataFrame):
     X_latest = X[-1]
     X_tensor = torch.tensor(X_latest, dtype=torch.float32).unsqueeze(0)
 
-    model = LSTMModel(input_size=X_tensor.shape[2], hidden_size=64, num_layers=2, num_classes=3)
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')))
-    model.eval()
-
-    with torch.no_grad():
-        pred_probs = model(X_tensor)  # 得到分类概率
-        pred_class = torch.argmax(pred_probs, dim=1).item()  # 得到预测类别
-
-    # 根据分类结果计算预测价格
-    last_close = df.iloc[-1]['close']
-    
-    # 分类结果：0=跌，1=平，2=涨
-    if pred_class == 0:  # 跌
-        pred_close = last_close * 0.999  # 微跌0.1%
-        direction = "跌"
-    elif pred_class == 2:  # 涨
-        pred_close = last_close * 1.001  # 微涨0.1%
-        direction = "涨"
-    else:  # 平
-        pred_close = last_close  # 不变
-        direction = "平"
-    
-    pred_change_ratio = (pred_close - last_close) / last_close
-    print(f"🔍 预测方向: {direction}, 变化幅度: {pred_change_ratio*100:.3f}%")
+    # 尝试加载模型并检测类型
+    try:
+        # 首先尝试加载为分类模型
+        model = LSTMModel(input_size=X_tensor.shape[2], hidden_size=32, num_layers=1, num_classes=2)
+        state_dict = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
+        model.load_state_dict(state_dict)
+        model.eval()
+        
+        # 检查是否为分类模型
+        with torch.no_grad():
+            test_output = model(X_tensor)
+            if test_output.shape[1] == 2:  # 分类模型
+                pred_probs = test_output
+                pred_class = torch.argmax(pred_probs, dim=1).item()
+                
+                # 根据分类结果计算预测价格
+                last_close = df.iloc[-1]['close']
+                
+                # 分类结果：0=跌，1=涨
+                if pred_class == 0:  # 跌
+                    pred_close = last_close * 0.999  # 微跌0.1%
+                    direction = "跌"
+                else:  # 涨
+                    pred_close = last_close * 1.001  # 微涨0.1%
+                    direction = "涨"
+                
+                pred_change_ratio = (pred_close - last_close) / last_close
+                pred_change_ratio_pct = pred_change_ratio * 100
+                print(f"🔍 预测方向: {direction}, 变化幅度: {pred_change_ratio_pct:.3f}%")
+            else:
+                raise ValueError("Unexpected output shape")
+                
+    except (RuntimeError, ValueError):
+        # 如果分类模型失败，尝试回归模型
+        print("检测到回归模型，切换到回归预测模式")
+        model = LSTMModel(input_size=X_tensor.shape[2], hidden_size=64, num_layers=2, num_classes=1)
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')))
+        model.eval()
+        
+        with torch.no_grad():
+            pred_normalized = model(X_tensor).item()
+        
+        # 将归一化的预测值转换回实际变化率
+        try:
+            from config_improved import MAX_CHANGE_RATIO
+        except ImportError:
+            MAX_CHANGE_RATIO = 0.02
+        
+        # 反向转换：从0-1范围转换回实际变化率
+        pred_change_ratio = (pred_normalized * 2 * MAX_CHANGE_RATIO) - MAX_CHANGE_RATIO
+        
+        # 根据分类结果计算预测价格
+        last_close = df.iloc[-1]['close']
+        pred_close = last_close * (1 + pred_change_ratio)
+        
+        # 确定方向
+        if pred_change_ratio > 0.001:  # 0.1%以上算涨
+            direction = "涨"
+        elif pred_change_ratio < -0.001:  # -0.1%以下算跌
+            direction = "跌"
+        else:
+            direction = "平"
+        
+        pred_change_ratio_pct = pred_change_ratio * 100
+        print(f"🔍 预测方向: {direction}, 变化幅度: {pred_change_ratio_pct:.3f}%")
 
     last_close_time = pd.to_datetime(df.iloc[-1]["timestamp"])
     pred_time = last_close_time + pd.Timedelta(hours=1)

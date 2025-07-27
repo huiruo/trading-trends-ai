@@ -4,17 +4,14 @@ import torch
 import torch.nn as nn
 
 class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_size=64, num_layers=2, dropout=0.3, num_classes=3):
+    def __init__(self, input_size, hidden_size=32, num_layers=1, dropout=0.2, num_classes=2):
         super(LSTMModel, self).__init__()
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers, 
                            batch_first=True, dropout=dropout if num_layers > 1 else 0)
         self.dropout = nn.Dropout(dropout)
-        self.fc1 = nn.Linear(hidden_size, 32)
+        self.fc1 = nn.Linear(hidden_size, 16)
         self.relu = nn.ReLU()
-        self.batch_norm = nn.BatchNorm1d(32)
-        self.fc2 = nn.Linear(32, 16)
-        self.relu2 = nn.ReLU()
-        self.fc3 = nn.Linear(16, num_classes)  # 3类：跌、平、涨
+        self.fc2 = nn.Linear(16, num_classes)  # 2类：跌、涨
         self.softmax = nn.Softmax(dim=1)
         
     def forward(self, x):
@@ -23,11 +20,7 @@ class LSTMModel(nn.Module):
         out = self.dropout(out)
         out = self.fc1(out)
         out = self.relu(out)
-        out = self.batch_norm(out)
-        out = self.dropout(out)
         out = self.fc2(out)
-        out = self.relu2(out)
-        out = self.fc3(out)
         out = self.softmax(out)
         return out
 

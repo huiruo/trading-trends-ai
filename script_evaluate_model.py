@@ -133,7 +133,7 @@ def evaluate_model():
     else:
         print("使用回归模型评估")
         # 加载回归模型
-        model = LSTMModel(input_size=X.shape[2], hidden_size=16, num_layers=1)
+        model = LSTMModel(input_size=X.shape[2], hidden_size=64, num_layers=2, num_classes=1)
         model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')))
         model.eval()
         

@@ -54,21 +54,21 @@ def train_improved(csv_path: str, epochs=TRAIN_EPOCHS, lr=LEARNING_RATE, batch_s
     print(f"标签比例: 跌={counts[0]/len(y)*100:.1f}%, 平={counts[1]/len(y)*100:.1f}%, 涨={counts[2]/len(y)*100:.1f}%")
 
     X_tensor = torch.tensor(X, dtype=torch.float32)
-    y_tensor = torch.tensor(y, dtype=torch.long)  # 分类标签使用long类型
+    y_tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(-1)  # 回归标签使用float类型
 
     dataset = TensorDataset(X_tensor, y_tensor)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     # 创建改进的模型
-    model = LSTMModel(input_size=X.shape[2], hidden_size=64, num_layers=2, num_classes=3)
+    model = LSTMModel(input_size=X.shape[2], hidden_size=64, num_layers=2, num_classes=1)
 
     # 删除旧模型，重新训练
     if os.path.exists(MODEL_PATH):
         print(f"🗑️ 删除旧模型，重新训练")
         os.remove(MODEL_PATH)
 
-    # 使用分类损失函数
-    loss_fn = nn.CrossEntropyLoss()
+    # 使用回归损失函数
+    loss_fn = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)  # 添加L2正则化
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=10, factor=0.5)
 
