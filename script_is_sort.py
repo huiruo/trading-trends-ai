@@ -1,7 +1,7 @@
 import pandas as pd
 from preprocess import load_klines_from_csv
 
-# python -m test_sort.py
+# python -m script_is_sort.py
 # 测试数据排序
 from config_improved import DATA_PATH
 df = load_klines_from_csv(DATA_PATH)
