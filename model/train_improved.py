@@ -47,6 +47,11 @@ def train_improved(csv_path: str, epochs=TRAIN_EPOCHS, lr=LEARNING_RATE, batch_s
     print(f"y min: {np.min(y)}, y max: {np.max(y)}")
     print(f"X中有NaN: {np.isnan(X).any()}")
     print(f"y中有NaN: {np.isnan(y).any()}")
+    
+    # 分析标签分布
+    unique, counts = np.unique(y, return_counts=True)
+    print(f"标签分布: {dict(zip(unique, counts))}")
+    print(f"标签比例: 跌={counts[0]/len(y)*100:.1f}%, 平={counts[1]/len(y)*100:.1f}%, 涨={counts[2]/len(y)*100:.1f}%")
 
     X_tensor = torch.tensor(X, dtype=torch.float32)
     y_tensor = torch.tensor(y, dtype=torch.long)  # 分类标签使用long类型
@@ -55,24 +60,27 @@ def train_improved(csv_path: str, epochs=TRAIN_EPOCHS, lr=LEARNING_RATE, batch_s
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     # 创建改进的模型
-    model = LSTMModel(input_size=X.shape[2], hidden_size=32, num_layers=2, num_classes=3)
+    model = LSTMModel(input_size=X.shape[2], hidden_size=64, num_layers=2, num_classes=3)
 
-    # 加载已有权重（如果存在）
+    # 删除旧模型，重新训练
     if os.path.exists(MODEL_PATH):
-        print(f"🔄 Loading existing model weights from {MODEL_PATH} for continued training.")
-        model.load_state_dict(torch.load(MODEL_PATH))
-    else:
-        print("⚠️ No existing model found, training from scratch.")
+        print(f"🗑️ 删除旧模型，重新训练")
+        os.remove(MODEL_PATH)
 
     # 使用分类损失函数
     loss_fn = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)  # 添加L2正则化
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=10, factor=0.5)
 
     best_loss = float('inf')
+    patience_counter = 0
+    max_patience = 20
+    
     for epoch in range(epochs):
         total_loss = 0
         batch_count = 0
+        model.train()
+        
         for xb, yb in dataloader:
             # 检查批次数据
             if torch.isnan(xb).any() or torch.isnan(yb).any():
@@ -103,11 +111,21 @@ def train_improved(csv_path: str, epochs=TRAIN_EPOCHS, lr=LEARNING_RATE, batch_s
             
             if avg_loss < best_loss:
                 best_loss = avg_loss
+                patience_counter = 0
                 # 保存最佳模型
                 os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
                 torch.save(model.state_dict(), MODEL_PATH)
+            else:
+                patience_counter += 1
             
-            print(f"Epoch {epoch+1}/{epochs}, Avg Loss: {avg_loss:.6f}, Best Loss: {best_loss:.6f}")
+            # 每10个epoch打印一次详细信息
+            if (epoch + 1) % 10 == 0:
+                print(f"Epoch {epoch+1}/{epochs}, Avg Loss: {avg_loss:.6f}, Best Loss: {best_loss:.6f}, Patience: {patience_counter}")
+            
+            # 早停
+            if patience_counter >= max_patience:
+                print(f"🛑 早停触发，在epoch {epoch+1}停止训练")
+                break
         else:
             print(f"Epoch {epoch+1}/{epochs}: 所有批次都包含NaN，跳过此epoch")
 

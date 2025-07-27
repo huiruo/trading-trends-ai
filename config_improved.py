@@ -4,9 +4,9 @@ import os
 # 模型配置
 MODEL_PATH = "model/lstm_model_improved.pt"
 WINDOW_SIZE = 24  # 减少窗口大小
-TRAIN_EPOCHS = 100  # 增加训练轮数
-LEARNING_RATE = 0.0005  # 降低学习率
-BATCH_SIZE = 64  # 增加批次大小
+TRAIN_EPOCHS = 200  # 增加训练轮数
+LEARNING_RATE = 0.001  # 提高学习率
+BATCH_SIZE = 32  # 减少批次大小，增加梯度更新频率
 
 # 数据路径
 # DATA_PATH = "dataset/btc_1h.csv"
@@ -34,8 +34,8 @@ FEATURE_COLUMNS = BASE_FEATURES + TECHNICAL_FEATURES
 USE_CLASSIFICATION = True  # 使用分类方法预测涨跌方向
 USE_RELATIVE_CHANGE = False  # 不使用相对变化
 
-# 分类阈值
-CLASSIFICATION_THRESHOLD = 0.001  # 0.1%的变化作为涨跌判断阈值
+# 分类阈值 - 调整为更合理的值
+CLASSIFICATION_THRESHOLD = 0.002  # 0.2%的变化作为涨跌判断阈值
 
 #  MAX_CHANGE_RATIO 的作用
 # 它人为地限制了模型能学到的最大涨跌幅，比如5%。

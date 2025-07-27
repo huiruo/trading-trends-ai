@@ -5,6 +5,7 @@ from preprocess import load_and_preprocess
 from technical_indicators import add_technical_indicators
 from config_improved import WINDOW_SIZE
 
+# python script_analyze_training_data.py
 def analyze_training_data():
     """分析训练数据的最后一段，检查是否有极端变化"""
     

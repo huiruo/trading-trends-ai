@@ -44,7 +44,7 @@ def predict_next_candle_improved(df: pd.DataFrame):
     X_latest = X[-1]
     X_tensor = torch.tensor(X_latest, dtype=torch.float32).unsqueeze(0)
 
-    model = LSTMModel(input_size=X_tensor.shape[2], hidden_size=32, num_layers=2, num_classes=3)
+    model = LSTMModel(input_size=X_tensor.shape[2], hidden_size=64, num_layers=2, num_classes=3)
     model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')))
     model.eval()
 
