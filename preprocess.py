@@ -26,7 +26,7 @@ SCALER_PATH = "model/scaler.pkl"
 def load_and_preprocess(df_or_path):
     """
     加载并预处理数据，支持DataFrame或文件路径。
-    先加技术指标，再标准化所有特征。
+    对所有特征进行标准化，使用更稳定的缩放方法。
     """
     if isinstance(df_or_path, str):
         df = load_klines_from_csv(df_or_path)
@@ -34,8 +34,10 @@ def load_and_preprocess(df_or_path):
         df = df_or_path.copy()
     # 先加技术指标
     df = add_technical_indicators(df)
-    # 用所有特征做标准化
+    
+    # 对所有特征进行标准化
     df[FEATURE_COLUMNS] = scaler.fit_transform(df[FEATURE_COLUMNS])
+    
     # 保存scaler
     os.makedirs(os.path.dirname(SCALER_PATH), exist_ok=True)
     with open(SCALER_PATH, 'wb') as f:
@@ -79,8 +81,10 @@ def create_sequences(df: pd.DataFrame, window_size=WINDOW_SIZE):
             # 归一化到0-1范围
             y_target = (change_ratio + MAX_CHANGE_RATIO) / (2 * MAX_CHANGE_RATIO)
         else:
-            # 使用绝对价格作为目标
-            y_target = df[TARGET_COLUMN].iloc[i + window_size]
+            # 使用绝对价格作为目标 - 需要反向转换到原始价格
+            scaled_next_close = df[TARGET_COLUMN].iloc[i + window_size]
+            # 反向转换到原始价格
+            y_target = inverse_transform_close(scaled_next_close)
         
         X.append(x_seq)
         y.append(y_target)
@@ -93,13 +97,13 @@ def inverse_transform_close(value: float):
     if loaded_scaler is None:
         return value
     
-    # 创建一个dummy数组，只设置close列的值
-    dummy = np.zeros((1, len(FEATURE_COLUMNS)))
+    # 直接使用RobustScaler的反向转换公式
+    # RobustScaler: (X - center_) / scale_
+    # 反向转换: X = value * scale_ + center_
     close_idx = FEATURE_COLUMNS.index(TARGET_COLUMN)
-    dummy[0, close_idx] = value
+    original_value = value * loaded_scaler.scale_[close_idx] + loaded_scaler.center_[close_idx]
     
-    # 反向转换
-    return loaded_scaler.inverse_transform(dummy)[0, close_idx]
+    return original_value
 
 # 使用示例: df = load_klines_from_csv("dataset/btc_1h.csv")
 # print(df.head())

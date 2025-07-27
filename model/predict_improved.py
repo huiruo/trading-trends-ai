@@ -31,7 +31,7 @@ def predict_next_candle_improved(df: pd.DataFrame):
     # 添加技术指标
     df_with_indicators = add_technical_indicators(df)
     
-    # 使用已保存的scaler进行标准化
+    # 使用已保存的scaler进行标准化（对所有特征）
     df_processed = df_with_indicators.copy()
     df_processed[FEATURE_COLUMNS] = loaded_scaler.transform(df_with_indicators[FEATURE_COLUMNS])
 
@@ -49,30 +49,15 @@ def predict_next_candle_improved(df: pd.DataFrame):
     model.eval()
 
     with torch.no_grad():
-        pred_normalized = model(X_tensor).item()
+        pred_scaled = model(X_tensor).item()  # 得到缩放后的预测值
 
-    # 检查是否使用相对变化目标
-    try:
-        from config_improved import USE_RELATIVE_CHANGE, MAX_CHANGE_RATIO
-    except ImportError:
-        USE_RELATIVE_CHANGE = False
-        MAX_CHANGE_RATIO = 0.05
+    # 反向转换预测的收盘价
+    pred_close = inverse_transform_close(pred_scaled)
     
-    if USE_RELATIVE_CHANGE:
-        # 从归一化的相对变化转换为实际变化幅度
-        pred_change_ratio = (pred_normalized * 2 * MAX_CHANGE_RATIO) - MAX_CHANGE_RATIO
-        
-        # 计算预测的收盘价
-        last_close = df.iloc[-1]['close']
-        pred_close = last_close * (1 + pred_change_ratio)
-        
-        print(f"🔍 预测变化幅度: {pred_change_ratio*100:.2f}%")
-    else:
-        # 使用绝对价格预测
-        pred_close = inverse_transform_close(pred_normalized)
-        last_close = df.iloc[-1]['close']
-        pred_change_ratio = (pred_close - last_close) / last_close
-        print(f"🔍 原始预测变化幅度: {pred_change_ratio*100:.2f}%")
+    # 获取实际的最后收盘价
+    last_close = df.iloc[-1]['close']
+    pred_change_ratio = (pred_close - last_close) / last_close
+    print(f"🔍 原始预测变化幅度: {pred_change_ratio*100:.2f}%")
 
     direction = "涨" if pred_close > last_close else "跌"
 

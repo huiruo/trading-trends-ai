@@ -29,12 +29,12 @@ def train_improved(csv_path: str, epochs=TRAIN_EPOCHS, lr=LEARNING_RATE, batch_s
     if nan_count > 0 or inf_count > 0:
         print("⚠️ 发现NaN或无穷大值，正在清理...")
         # 用前向填充和后向填充清理NaN
-        df = df.fillna(method='ffill').fillna(method='bfill')
+        df = df.ffill().bfill()
         # 用0替换无穷大值
         df = df.replace([np.inf, -np.inf], 0)
         print("数据清理完成")
     
-    # 创建序列
+    # 创建序列 - 注意：这里不缩放目标值
     X, y = create_sequences(df, window_size=WINDOW_SIZE)
     
     print(f"CSV 原始K线数据条数: {len(df)}")
@@ -49,7 +49,7 @@ def train_improved(csv_path: str, epochs=TRAIN_EPOCHS, lr=LEARNING_RATE, batch_s
     print(f"y中有NaN: {np.isnan(y).any()}")
 
     X_tensor = torch.tensor(X, dtype=torch.float32)
-    y_tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(-1)
+    y_tensor = torch.tensor(y, dtype=torch.float32)  # 移除unsqueeze(-1)
 
     dataset = TensorDataset(X_tensor, y_tensor)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)

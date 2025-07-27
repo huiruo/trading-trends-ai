@@ -61,3 +61,17 @@ Press CTRL+C to quit
 
 timestamp,open,high,low,close,volume
 
+
+## 提示词
+```
+(venv) ➜  trading-trends-ai git:(main) ✗ rm model/scaler.pkl 
+rm model/lstm_model_improved.pt
+python -m model.train_improved
+数据清理完成
+CSV 原始K线数据条数: 10159
+生成的训练样本序列数: 10111
+特征数量: 8
+  有问题吗？这是一个预测btc 小时k线项目 ，数据如下_id,close,closeTime,high,low,open,quoteAssetVolume,takerBuyBaseVolume,takerBuyQuoteVolume,trades,updatedAtLocal,volume
+1717020000000,67680.01,1717023599999,67826.09,67605.94,67700.42,26754950.9165193,180.04339,12186862.6058975,22438,2025-07-27T03:28:52.034Z,395.25117
+1717023600000,67652.42,1717027199999,67731.59,67576.06,67680.01,30721275.7982111,188.3291,12743020.1021687,23042,2025-07-27T03:28:52.034Z,454.0068
+```
