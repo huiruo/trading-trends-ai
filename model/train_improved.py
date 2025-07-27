@@ -49,13 +49,13 @@ def train_improved(csv_path: str, epochs=TRAIN_EPOCHS, lr=LEARNING_RATE, batch_s
     print(f"y中有NaN: {np.isnan(y).any()}")
 
     X_tensor = torch.tensor(X, dtype=torch.float32)
-    y_tensor = torch.tensor(y, dtype=torch.float32)  # 移除unsqueeze(-1)
+    y_tensor = torch.tensor(y, dtype=torch.long)  # 分类标签使用long类型
 
     dataset = TensorDataset(X_tensor, y_tensor)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     # 创建改进的模型
-    model = LSTMModel(input_size=X.shape[2], hidden_size=16, num_layers=1)
+    model = LSTMModel(input_size=X.shape[2], hidden_size=32, num_layers=2, num_classes=3)
 
     # 加载已有权重（如果存在）
     if os.path.exists(MODEL_PATH):
@@ -64,7 +64,8 @@ def train_improved(csv_path: str, epochs=TRAIN_EPOCHS, lr=LEARNING_RATE, batch_s
     else:
         print("⚠️ No existing model found, training from scratch.")
 
-    loss_fn = nn.MSELoss()
+    # 使用分类损失函数
+    loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
 

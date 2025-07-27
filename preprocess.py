@@ -54,37 +54,63 @@ def load_scaler():
 def create_sequences(df: pd.DataFrame, window_size=WINDOW_SIZE):
     X, y = [], []
     
-    # 检查是否使用相对变化目标
+    # 检查是否使用分类方法
     try:
-        from config_improved import USE_RELATIVE_CHANGE, MAX_CHANGE_RATIO
+        from config_improved import USE_CLASSIFICATION, CLASSIFICATION_THRESHOLD
     except ImportError:
-        USE_RELATIVE_CHANGE = False
-        MAX_CHANGE_RATIO = 0.05
+        USE_CLASSIFICATION = False
+        CLASSIFICATION_THRESHOLD = 0.001
     
     for i in range(len(df) - window_size):
         x_seq = df[FEATURE_COLUMNS].iloc[i:i+window_size].values
         
-        if USE_RELATIVE_CHANGE:
-            # 使用相对变化作为目标
+        if USE_CLASSIFICATION:
+            # 使用分类方法
             current_close = df[TARGET_COLUMN].iloc[i + window_size - 1]  # 当前收盘价
             next_close = df[TARGET_COLUMN].iloc[i + window_size]         # 下一个收盘价
             
-            # 防止除零错误
+            # 计算变化率
             if current_close == 0:
                 change_ratio = 0
             else:
                 change_ratio = (next_close - current_close) / current_close
             
-            # 限制变化幅度在合理范围内
-            change_ratio = max(-MAX_CHANGE_RATIO, min(MAX_CHANGE_RATIO, change_ratio))
-            
-            # 归一化到0-1范围
-            y_target = (change_ratio + MAX_CHANGE_RATIO) / (2 * MAX_CHANGE_RATIO)
+            # 分类标签：0=跌，1=平，2=涨
+            if change_ratio < -CLASSIFICATION_THRESHOLD:
+                y_target = 0  # 跌
+            elif change_ratio > CLASSIFICATION_THRESHOLD:
+                y_target = 2  # 涨
+            else:
+                y_target = 1  # 平
         else:
-            # 使用绝对价格作为目标 - 需要反向转换到原始价格
-            scaled_next_close = df[TARGET_COLUMN].iloc[i + window_size]
-            # 反向转换到原始价格
-            y_target = inverse_transform_close(scaled_next_close)
+            # 使用回归方法
+            try:
+                from config_improved import USE_RELATIVE_CHANGE, MAX_CHANGE_RATIO
+            except ImportError:
+                USE_RELATIVE_CHANGE = False
+                MAX_CHANGE_RATIO = 0.05
+            
+            if USE_RELATIVE_CHANGE:
+                # 使用相对变化作为目标
+                current_close = df[TARGET_COLUMN].iloc[i + window_size - 1]  # 当前收盘价
+                next_close = df[TARGET_COLUMN].iloc[i + window_size]         # 下一个收盘价
+                
+                # 防止除零错误
+                if current_close == 0:
+                    change_ratio = 0
+                else:
+                    change_ratio = (next_close - current_close) / current_close
+                
+                # 限制变化幅度在合理范围内
+                change_ratio = max(-MAX_CHANGE_RATIO, min(MAX_CHANGE_RATIO, change_ratio))
+                
+                # 归一化到0-1范围
+                y_target = (change_ratio + MAX_CHANGE_RATIO) / (2 * MAX_CHANGE_RATIO)
+            else:
+                # 使用绝对价格作为目标 - 需要反向转换到原始价格
+                scaled_next_close = df[TARGET_COLUMN].iloc[i + window_size]
+                # 反向转换到原始价格
+                y_target = inverse_transform_close(scaled_next_close)
         
         X.append(x_seq)
         y.append(y_target)
