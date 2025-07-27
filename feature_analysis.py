@@ -1,166 +1,311 @@
-# feature_analysis.py - 特征分析工具
+# feature_analysis.py - 特征工程分析脚本
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from preprocess import load_and_preprocess, create_sequences
-from technical_indicators import add_technical_indicators
-from config_improved import FEATURE_COLUMNS, WINDOW_SIZE
 import seaborn as sns
+from sklearn.feature_selection import mutual_info_regression, mutual_info_classif
+from sklearn.preprocessing import StandardScaler
+from technical_indicators import add_technical_indicators, get_feature_importance_analysis
+from preprocess import load_and_preprocess
+from config_improved import *
 
-def analyze_features(df):
-    """分析特征，找出可能导致极端预测的特征"""
-    print("=== 特征分析报告 ===\n")
+def analyze_features():
+    """分析特征工程效果"""
+    print("=== 特征工程分析 ===")
     
-    # 添加技术指标
-    df_with_indicators = add_technical_indicators(df)
+    # 加载数据
+    df = load_and_preprocess(DATA_PATH)
+    df = add_technical_indicators(df)
     
-    # 计算每根K线的涨跌幅
-    df_with_indicators['change_ratio'] = df_with_indicators['close'].pct_change()
+    print(f"原始数据形状: {df.shape}")
+    print(f"特征数量: {len(FEATURE_COLUMNS)}")
     
-    print("1. 价格变化统计:")
-    print(f"   最大涨幅: {df_with_indicators['change_ratio'].max()*100:.2f}%")
-    print(f"   最大跌幅: {df_with_indicators['change_ratio'].min()*100:.2f}%")
-    print(f"   平均涨跌幅: {df_with_indicators['change_ratio'].abs().mean()*100:.2f}%")
-    print(f"   标准差: {df_with_indicators['change_ratio'].std()*100:.2f}%\n")
+    # 基础统计分析
+    print("\n=== 基础统计分析 ===")
+    feature_stats = df[FEATURE_COLUMNS].describe()
+    print(feature_stats)
     
-    # 分析每个特征的统计信息
-    print("2. 特征统计信息:")
-    feature_stats = {}
+    # 检查缺失值
+    print("\n=== 缺失值检查 ===")
+    missing_values = df[FEATURE_COLUMNS].isnull().sum()
+    print(missing_values)
     
-    for feature in FEATURE_COLUMNS:
-        if feature in df_with_indicators.columns:
-            values = df_with_indicators[feature].dropna()
-            feature_stats[feature] = {
-                'mean': values.mean(),
-                'std': values.std(),
-                'min': values.min(),
-                'max': values.max(),
-                'range': values.max() - values.min(),
-                'has_inf': np.isinf(values).any(),
-                'has_nan': values.isna().any()
-            }
-            
-            print(f"   {feature}:")
-            print(f"     范围: [{values.min():.4f}, {values.max():.4f}]")
-            print(f"     均值: {values.mean():.4f}, 标准差: {values.std():.4f}")
-            if np.isinf(values).any():
-                print(f"     ⚠️ 包含无穷大值")
-            if values.isna().any():
-                print(f"     ⚠️ 包含NaN值")
+    # 检查无穷大值
+    print("\n=== 无穷大值检查 ===")
+    inf_values = np.isinf(df[FEATURE_COLUMNS]).sum()
+    print(inf_values)
     
-    # 找出异常特征
-    print("\n3. 异常特征检测:")
-    problematic_features = []
+    # 特征相关性分析
+    print("\n=== 特征相关性分析 ===")
+    correlation_analysis(df)
     
-    for feature, stats in feature_stats.items():
-        # 检查是否有无穷大值
-        if stats['has_inf']:
-            problematic_features.append((feature, "包含无穷大值"))
-            print(f"   ❌ {feature}: 包含无穷大值")
-        
-        # 检查是否有NaN值
-        if stats['has_nan']:
-            problematic_features.append((feature, "包含NaN值"))
-            print(f"   ❌ {feature}: 包含NaN值")
-        
-        # 检查数值范围是否异常
-        if stats['range'] > 1000000:  # 范围过大
-            problematic_features.append((feature, "数值范围过大"))
-            print(f"   ⚠️ {feature}: 数值范围过大 ({stats['range']:.2f})")
-        
-        # 检查标准差是否异常
-        if stats['std'] > 10000:  # 标准差过大
-            problematic_features.append((feature, "标准差过大"))
-            print(f"   ⚠️ {feature}: 标准差过大 ({stats['std']:.2f})")
+    # 特征重要性分析
+    print("\n=== 特征重要性分析 ===")
+    importance_analysis(df)
     
-    # 特征与价格变化的相关性分析
-    print("\n4. 特征与价格变化的相关性:")
-    correlations = {}
+    # 特征稳定性分析
+    print("\n=== 特征稳定性分析 ===")
+    stability_analysis(df)
     
-    for feature in FEATURE_COLUMNS:
-        if feature in df_with_indicators.columns:
-            corr = df_with_indicators[feature].corr(df_with_indicators['change_ratio'])
-            correlations[feature] = corr
-            print(f"   {feature}: {corr:.4f}")
-    
-    # 找出相关性最强的特征
-    sorted_correlations = sorted(correlations.items(), key=lambda x: abs(x[1]), reverse=True)
-    print(f"\n   相关性最强的特征: {sorted_correlations[0][0]} ({sorted_correlations[0][1]:.4f})")
-    print(f"   相关性最弱的特征: {sorted_correlations[-1][0]} ({sorted_correlations[-1][1]:.4f})")
-    
-    return feature_stats, correlations, problematic_features
+    # 生成可视化报告
+    print("\n=== 生成可视化报告 ===")
+    generate_visualizations(df)
 
-def suggest_feature_fixes(problematic_features, correlations):
-    """根据分析结果建议特征修复方案"""
-    print("\n=== 特征修复建议 ===\n")
+def correlation_analysis(df: pd.DataFrame):
+    """特征相关性分析"""
+    feature_df = df[FEATURE_COLUMNS].copy()
     
-    if not problematic_features:
-        print("✅ 没有发现明显的问题特征")
+    # 计算相关性矩阵
+    corr_matrix = feature_df.corr()
+    
+    # 找出高相关性的特征对
+    high_corr_pairs = []
+    for i in range(len(corr_matrix.columns)):
+        for j in range(i+1, len(corr_matrix.columns)):
+            corr_value = corr_matrix.iloc[i, j]
+            if abs(corr_value) > 0.8:
+                high_corr_pairs.append({
+                    'feature1': corr_matrix.columns[i],
+                    'feature2': corr_matrix.columns[j],
+                    'correlation': corr_value
+                })
+    
+    print(f"发现 {len(high_corr_pairs)} 对高相关性特征 (|r| > 0.8):")
+    for pair in high_corr_pairs:
+        print(f"  {pair['feature1']} <-> {pair['feature2']}: {pair['correlation']:.3f}")
+    
+    # 计算每个特征的平均相关性
+    avg_corr = corr_matrix.abs().mean().sort_values(ascending=False)
+    print(f"\n特征平均相关性 (降序):")
+    for feature, corr in avg_corr.items():
+        print(f"  {feature}: {corr:.3f}")
+
+def importance_analysis(df: pd.DataFrame):
+    """特征重要性分析"""
+    feature_df = df[FEATURE_COLUMNS].copy()
+    
+    # 创建目标变量
+    if USE_CLASSIFICATION:
+        # 分类目标
+        target = create_classification_target(df)
+        mi_scores = mutual_info_classif(feature_df, target, random_state=42)
     else:
-        print("建议修复以下特征:")
-        for feature, issue in problematic_features:
-            print(f"   - {feature}: {issue}")
+        # 回归目标
+        target = create_regression_target(df)
+        mi_scores = mutual_info_regression(feature_df, target, random_state=42)
     
-    print("\n建议保留的特征 (按相关性排序):")
-    sorted_correlations = sorted(correlations.items(), key=lambda x: abs(x[1]), reverse=True)
-    for i, (feature, corr) in enumerate(sorted_correlations[:10]):  # 只显示前10个
-        print(f"   {i+1}. {feature}: {corr:.4f}")
+    # 计算特征重要性
+    feature_importance = pd.DataFrame({
+        'feature': FEATURE_COLUMNS,
+        'importance': mi_scores
+    }).sort_values('importance', ascending=False)
+    
+    print("特征重要性 (互信息):")
+    for _, row in feature_importance.iterrows():
+        print(f"  {row['feature']}: {row['importance']:.4f}")
+    
+    # 识别低重要性特征
+    low_importance_threshold = 0.01
+    low_importance_features = feature_importance[feature_importance['importance'] < low_importance_threshold]
+    
+    if len(low_importance_features) > 0:
+        print(f"\n⚠️ 发现 {len(low_importance_features)} 个低重要性特征 (< {low_importance_threshold}):")
+        for _, row in low_importance_features.iterrows():
+            print(f"  {row['feature']}: {row['importance']:.4f}")
 
-def create_feature_visualization(df):
-    """创建特征可视化图表"""
-    df_with_indicators = add_technical_indicators(df)
-    df_with_indicators['change_ratio'] = df_with_indicators['close'].pct_change()
+def stability_analysis(df: pd.DataFrame):
+    """特征稳定性分析"""
+    feature_df = df[FEATURE_COLUMNS].copy()
     
-    # 创建子图
-    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    # 计算每个特征的方差
+    feature_variance = feature_df.var().sort_values(ascending=False)
     
-    # 1. 价格变化分布
-    axes[0, 0].hist(df_with_indicators['change_ratio'].dropna() * 100, bins=50, alpha=0.7)
-    axes[0, 0].set_title('价格变化分布')
-    axes[0, 0].set_xlabel('涨跌幅 (%)')
-    axes[0, 0].set_ylabel('频次')
+    print("特征方差 (降序):")
+    for feature, variance in feature_variance.items():
+        print(f"  {feature}: {variance:.6f}")
     
-    # 2. 特征相关性热力图
-    feature_cols = [col for col in FEATURE_COLUMNS if col in df_with_indicators.columns]
-    corr_matrix = df_with_indicators[feature_cols + ['change_ratio']].corr()
-    sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0, ax=axes[0, 1])
-    axes[0, 1].set_title('特征相关性热力图')
+    # 识别低方差特征
+    low_variance_threshold = feature_variance.quantile(0.1)  # 最低10%分位数
+    low_variance_features = feature_variance[feature_variance < low_variance_threshold]
     
-    # 3. 主要特征的时间序列
-    if 'rsi_14' in df_with_indicators.columns:
-        axes[1, 0].plot(df_with_indicators['rsi_14'])
-        axes[1, 0].set_title('RSI时间序列')
-        axes[1, 0].set_ylabel('RSI')
+    if len(low_variance_features) > 0:
+        print(f"\n⚠️ 发现 {len(low_variance_features)} 个低方差特征 (< {low_variance_threshold:.6f}):")
+        for feature, variance in low_variance_features.items():
+            print(f"  {feature}: {variance:.6f}")
     
-    # 4. 价格与预测目标
-    axes[1, 1].plot(df_with_indicators['close'])
-    axes[1, 1].set_title('收盘价时间序列')
-    axes[1, 1].set_ylabel('价格')
+    # 计算特征的时间稳定性
+    print(f"\n=== 特征时间稳定性分析 ===")
+    stability_scores = calculate_temporal_stability(df)
     
-    plt.tight_layout()
-    plt.savefig('feature_analysis.png', dpi=300, bbox_inches='tight')
-    print("\n📊 特征分析图表已保存为 'feature_analysis.png'")
+    print("特征时间稳定性 (越高越稳定):")
+    for feature, stability in stability_scores.items():
+        print(f"  {feature}: {stability:.3f}")
+
+def calculate_temporal_stability(df: pd.DataFrame) -> dict:
+    """计算特征的时间稳定性"""
+    stability_scores = {}
+    
+    for feature in FEATURE_COLUMNS:
+        if feature in df.columns:
+            # 计算滚动窗口内的标准差
+            rolling_std = df[feature].rolling(window=50).std()
+            # 稳定性 = 1 / (1 + 平均滚动标准差)
+            avg_rolling_std = rolling_std.mean()
+            stability = 1 / (1 + avg_rolling_std) if avg_rolling_std > 0 else 1
+            stability_scores[feature] = stability
+    
+    return dict(sorted(stability_scores.items(), key=lambda x: x[1], reverse=True))
+
+def create_classification_target(df: pd.DataFrame) -> np.ndarray:
+    """创建分类目标变量"""
+    targets = []
+    threshold = CLASSIFICATION_THRESHOLD
+    
+    for i in range(WINDOW_SIZE, len(df)):
+        current_close = df.iloc[i-1]['close']
+        next_close = df.iloc[i]['close']
+        change_ratio = (next_close - current_close) / current_close
+        
+        if change_ratio < -threshold:
+            target = 0  # 跌
+        elif change_ratio > threshold:
+            target = 2  # 涨
+        else:
+            target = 1  # 平
+        
+        targets.append(target)
+    
+    return np.array(targets)
+
+def create_regression_target(df: pd.DataFrame) -> np.ndarray:
+    """创建回归目标变量"""
+    targets = []
+    
+    for i in range(WINDOW_SIZE, len(df)):
+        current_close = df.iloc[i-1]['close']
+        next_close = df.iloc[i]['close']
+        change_ratio = (next_close - current_close) / current_close
+        
+        # 限制变化率范围
+        change_ratio = np.clip(change_ratio, -MAX_CHANGE_RATIO, MAX_CHANGE_RATIO)
+        
+        targets.append(change_ratio)
+    
+    return np.array(targets)
+
+def generate_visualizations(df: pd.DataFrame):
+    """生成可视化报告"""
+    try:
+        # 设置中文字体
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'DejaVu Sans']
+        plt.rcParams['axes.unicode_minus'] = False
+        
+        # 创建图形
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        fig.suptitle('特征工程分析报告', fontsize=16)
+        
+        # 1. 相关性热力图
+        feature_df = df[FEATURE_COLUMNS].copy()
+        corr_matrix = feature_df.corr()
+        
+        sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0, 
+                   square=True, ax=axes[0,0])
+        axes[0,0].set_title('特征相关性热力图')
+        axes[0,0].tick_params(axis='x', rotation=45)
+        axes[0,0].tick_params(axis='y', rotation=0)
+        
+        # 2. 特征重要性条形图
+        if USE_CLASSIFICATION:
+            target = create_classification_target(df)
+            mi_scores = mutual_info_classif(feature_df, target, random_state=42)
+        else:
+            target = create_regression_target(df)
+            mi_scores = mutual_info_regression(feature_df, target, random_state=42)
+        
+        feature_importance = pd.DataFrame({
+            'feature': FEATURE_COLUMNS,
+            'importance': mi_scores
+        }).sort_values('importance', ascending=True)
+        
+        axes[0,1].barh(range(len(feature_importance)), feature_importance['importance'])
+        axes[0,1].set_yticks(range(len(feature_importance)))
+        axes[0,1].set_yticklabels(feature_importance['feature'])
+        axes[0,1].set_title('特征重要性 (互信息)')
+        axes[0,1].set_xlabel('重要性得分')
+        
+        # 3. 特征方差分布
+        feature_variance = feature_df.var().sort_values(ascending=True)
+        axes[1,0].barh(range(len(feature_variance)), feature_variance.values)
+        axes[1,0].set_yticks(range(len(feature_variance)))
+        axes[1,0].set_yticklabels(feature_variance.index)
+        axes[1,0].set_title('特征方差分布')
+        axes[1,0].set_xlabel('方差')
+        
+        # 4. 特征时间序列示例 (选择前3个重要特征)
+        top_features = feature_importance.tail(3)['feature'].tolist()
+        for i, feature in enumerate(top_features):
+            if feature in df.columns:
+                # 只显示最后1000个数据点
+                sample_data = df[feature].tail(1000)
+                axes[1,1].plot(sample_data.index, sample_data.values, 
+                              label=feature, alpha=0.7)
+        
+        axes[1,1].set_title('重要特征时间序列示例')
+        axes[1,1].set_xlabel('时间索引')
+        axes[1,1].set_ylabel('特征值')
+        axes[1,1].legend()
+        axes[1,1].grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig('feature_analysis_report.png', dpi=300, bbox_inches='tight')
+        print("✅ 可视化报告已保存为: feature_analysis_report.png")
+        
+    except Exception as e:
+        print(f"⚠️ 生成可视化报告失败: {e}")
+
+def recommend_feature_improvements():
+    """推荐特征改进建议"""
+    print("\n=== 特征改进建议 ===")
+    
+    # 加载数据进行分析
+    df = load_and_preprocess(DATA_PATH)
+    df = add_technical_indicators(df)
+    
+    # 分析当前特征
+    feature_analysis = get_feature_importance_analysis(df)
+    
+    print("📊 当前特征分析:")
+    print(f"  总特征数: {feature_analysis['total_features']}")
+    print(f"  高相关性特征对: {len(feature_analysis['high_correlation_pairs'])}")
+    
+    # 建议
+    print("\n💡 改进建议:")
+    
+    if len(feature_analysis['high_correlation_pairs']) > 0:
+        print("  1. 移除高相关性特征对中的冗余特征")
+        for pair in feature_analysis['high_correlation_pairs']:
+            print(f"     - 考虑移除 {pair['feature1']} 或 {pair['feature2']} (相关性: {pair['correlation']:.3f})")
+    
+    # 检查低方差特征
+    low_variance_features = []
+    for feature, variance in feature_analysis['feature_variance'].items():
+        if variance < 0.001:  # 低方差阈值
+            low_variance_features.append(feature)
+    
+    if low_variance_features:
+        print(f"  2. 考虑移除低方差特征: {low_variance_features}")
+    
+    print("  3. 考虑添加以下新特征:")
+    print("     - 价格动量特征 (不同时间窗口)")
+    print("     - 成交量相关特征")
+    print("     - 波动率特征")
+    print("     - 市场情绪指标")
+    
+    print("  4. 特征工程优化:")
+    print("     - 使用对数收益率替代原始价格")
+    print("     - 应用z-score标准化")
+    print("     - 考虑特征选择算法")
 
 if __name__ == "__main__":
-    # 加载数据
-    from config_improved import DATA_PATH
-    df = pd.read_csv(DATA_PATH)
-    df = df.rename(columns={
-        'closeTime': 'timestamp',
-        'open': 'open',
-        'high': 'high',
-        'low': 'low',
-        'close': 'close',
-        'volume': 'volume'
-    })
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    df = df.sort_values(by='timestamp').reset_index(drop=True)
-    
-    # 分析特征
-    feature_stats, correlations, problematic_features = analyze_features(df)
-    
-    # 建议修复方案
-    suggest_feature_fixes(problematic_features, correlations)
-    
-    # 创建可视化
-    create_feature_visualization(df) 
+    analyze_features()
+    recommend_feature_improvements() 

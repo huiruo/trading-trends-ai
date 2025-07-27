@@ -1,16 +1,22 @@
-# model/predict_improved.py - 改进版预测脚本
+# model/predict_improved.py - 统一预测脚本（分类/回归）
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import torch
 import pandas as pd
+import numpy as np
 from model.model import LSTMModel
-from preprocess import load_and_preprocess, create_sequences, load_scaler, inverse_transform_close
+from preprocess import load_and_preprocess, create_sequences, load_scaler
 from technical_indicators import add_technical_indicators
 from config_improved import *
 
 def predict_next_candle_improved(df: pd.DataFrame):
+    """统一的预测函数"""
+    
+    print("=== 模型预测开始 ===")
+    print(f"模型类型: {'分类' if USE_CLASSIFICATION else '回归'}")
+    
     # 加载已保存的scaler
     loaded_scaler = load_scaler()
     if loaded_scaler is None:
@@ -20,7 +26,6 @@ def predict_next_candle_improved(df: pd.DataFrame):
     # 检查scaler特征名与当前特征名是否一致
     scaler_features = getattr(loaded_scaler, 'feature_names_in_', None)
     if scaler_features is not None:
-        from config_improved import FEATURE_COLUMNS
         if list(scaler_features) != list(FEATURE_COLUMNS):
             print("❌ 检测到 scaler.pkl 特征与当前 FEATURE_COLUMNS 不一致！")
             print(f"scaler特征: {list(scaler_features)}")
@@ -31,11 +36,11 @@ def predict_next_candle_improved(df: pd.DataFrame):
     # 添加技术指标
     df_with_indicators = add_technical_indicators(df)
     
-    # 使用已保存的scaler进行标准化（对所有特征）
+    # 使用已保存的scaler进行标准化
     df_processed = df_with_indicators.copy()
     df_processed[FEATURE_COLUMNS] = loaded_scaler.transform(df_with_indicators[FEATURE_COLUMNS])
 
-    X, y = create_sequences(df_processed, window_size=WINDOW_SIZE)
+    X, _ = create_sequences(df_processed, window_size=WINDOW_SIZE)
     
     if len(X) == 0:
         print("⚠️ Not enough data for prediction. Need at least {} data points.".format(WINDOW_SIZE + 1))
@@ -44,42 +49,75 @@ def predict_next_candle_improved(df: pd.DataFrame):
     X_latest = X[-1]
     X_tensor = torch.tensor(X_latest, dtype=torch.float32).unsqueeze(0)
 
-    # 尝试加载模型并检测类型
+    # 根据配置加载对应类型的模型
+    if USE_CLASSIFICATION:
+        return predict_classification(X_tensor, df)
+    else:
+        return predict_regression(X_tensor, df)
+
+def predict_classification(X_tensor: torch.Tensor, df: pd.DataFrame):
+    """分类模型预测"""
     try:
-        # 首先尝试加载为分类模型
-        model = LSTMModel(input_size=X_tensor.shape[2], hidden_size=32, num_layers=1, num_classes=2)
-        state_dict = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
-        model.load_state_dict(state_dict)
+        # 加载分类模型
+        model = LSTMModel(
+            input_size=X_tensor.shape[2], 
+            hidden_size=64, 
+            num_layers=2, 
+            num_classes=NUM_CLASSES
+        )
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')))
         model.eval()
         
-        # 检查是否为分类模型
         with torch.no_grad():
-            test_output = model(X_tensor)
-            if test_output.shape[1] == 2:  # 分类模型
-                pred_probs = test_output
-                pred_class = torch.argmax(pred_probs, dim=1).item()
-                
-                # 根据分类结果计算预测价格
-                last_close = df.iloc[-1]['close']
-                
-                # 分类结果：0=跌，1=涨
-                if pred_class == 0:  # 跌
-                    pred_close = last_close * 0.999  # 微跌0.1%
-                    direction = "跌"
-                else:  # 涨
-                    pred_close = last_close * 1.001  # 微涨0.1%
-                    direction = "涨"
-                
-                pred_change_ratio = (pred_close - last_close) / last_close
-                pred_change_ratio_pct = pred_change_ratio * 100
-                print(f"🔍 预测方向: {direction}, 变化幅度: {pred_change_ratio_pct:.3f}%")
-            else:
-                raise ValueError("Unexpected output shape")
-                
-    except (RuntimeError, ValueError):
-        # 如果分类模型失败，尝试回归模型
-        print("检测到回归模型，切换到回归预测模式")
-        model = LSTMModel(input_size=X_tensor.shape[2], hidden_size=64, num_layers=2, num_classes=1)
+            pred_probs = model(X_tensor)
+            pred_class = torch.argmax(pred_probs, dim=1).item()
+            confidence = torch.max(pred_probs, dim=1).values.item()
+            
+            # 根据分类结果计算预测价格
+            last_close = df.iloc[-1]['close']
+            
+            # 2分类：0=跌，1=涨
+            if pred_class == 0:  # 跌
+                # 根据置信度调整预测幅度
+                pred_change = -0.003 * confidence  # 0.3% * 置信度
+                pred_close = last_close * (1 + pred_change)
+                direction = "跌"
+            else:  # 涨
+                # 根据置信度调整预测幅度
+                pred_change = 0.003 * confidence  # 0.3% * 置信度
+                pred_close = last_close * (1 + pred_change)
+                direction = "涨"
+            
+            pred_change_ratio = (pred_close - last_close) / last_close
+            pred_change_ratio_pct = pred_change_ratio * 100
+            
+            print(f"🔍 分类预测结果:")
+            print(f"  预测方向: {direction}")
+            print(f"  置信度: {confidence:.3f}")
+            print(f"  变化幅度: {pred_change_ratio_pct:.3f}%")
+            
+            return {
+                'direction': direction,
+                'confidence': confidence,
+                'change_ratio': pred_change_ratio,
+                'predicted_close': pred_close,
+                'current_close': last_close
+            }
+            
+    except Exception as e:
+        print(f"❌ 分类预测失败: {e}")
+        return None
+
+def predict_regression(X_tensor: torch.Tensor, df: pd.DataFrame):
+    """回归模型预测"""
+    try:
+        # 加载回归模型
+        model = LSTMModel(
+            input_size=X_tensor.shape[2], 
+            hidden_size=64, 
+            num_layers=2, 
+            num_classes=1
+        )
         model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')))
         model.eval()
         
@@ -87,264 +125,147 @@ def predict_next_candle_improved(df: pd.DataFrame):
             pred_normalized = model(X_tensor).item()
         
         # 将归一化的预测值转换回实际变化率
-        try:
-            from config_improved import MAX_CHANGE_RATIO
-        except ImportError:
-            MAX_CHANGE_RATIO = 0.02
-        
-        # 反向转换：从0-1范围转换回实际变化率
         pred_change_ratio = (pred_normalized * 2 * MAX_CHANGE_RATIO) - MAX_CHANGE_RATIO
         
-        # 根据分类结果计算预测价格
+        # 计算预测价格
         last_close = df.iloc[-1]['close']
         pred_close = last_close * (1 + pred_change_ratio)
         
         # 确定方向
-        if pred_change_ratio > 0.001:  # 0.1%以上算涨
+        if pred_change_ratio > 0:
             direction = "涨"
-        elif pred_change_ratio < -0.001:  # -0.1%以下算跌
+        elif pred_change_ratio < 0:
             direction = "跌"
         else:
             direction = "平"
         
         pred_change_ratio_pct = pred_change_ratio * 100
-        print(f"🔍 预测方向: {direction}, 变化幅度: {pred_change_ratio_pct:.3f}%")
-
-    last_close_time = pd.to_datetime(df.iloc[-1]["timestamp"])
-    pred_time = last_close_time + pd.Timedelta(hours=1)
-
-    # 分析预测原因
-    analysis = analyze_prediction_reason(df_with_indicators, pred_change_ratio, direction)
-
-    return {
-        "预测收盘价": pred_close,
-        "上次收盘价": last_close,
-        "预测涨跌": direction,
-        "预测时间": pred_time.strftime("%Y-%m-%d %H:%M:%S"),
-        "涨跌幅度": f"{((pred_close - last_close) / last_close * 100):.2f}%",
-        "分析原因": analysis
-    }
+        
+        print(f"🔍 回归预测结果:")
+        print(f"  预测方向: {direction}")
+        print(f"  变化幅度: {pred_change_ratio_pct:.3f}%")
+        print(f"  预测价格: {pred_close:.2f}")
+        
+        return {
+            'direction': direction,
+            'change_ratio': pred_change_ratio,
+            'predicted_close': pred_close,
+            'current_close': last_close
+        }
+        
+    except Exception as e:
+        print(f"❌ 回归预测失败: {e}")
+        return None
 
 def analyze_prediction_reason(df: pd.DataFrame, change_ratio: float, direction: str):
-    """分析预测结果的原因"""
+    """分析预测原因"""
+    print(f"\n=== 预测原因分析 ===")
     
-    # 获取最后几根K线的数据
-    last_5 = df.tail(5)
-    
-    # 分析技术指标
     last_row = df.iloc[-1]
     
-    analysis = f"🤖 AI分析预测原因：\n"
+    # RSI分析
+    if 'rsi_14' in last_row:
+        rsi = last_row['rsi_14']
+        if rsi > 70:
+            rsi_signal = "超买"
+        elif rsi < 30:
+            rsi_signal = "超卖"
+        else:
+            rsi_signal = "中性"
+        print(f"RSI(14): {rsi:.1f} - {rsi_signal}")
     
-    # 1. 价格趋势分析
-    price_trend = analyze_price_trend(last_5)
-    analysis += f"📈 价格趋势：{price_trend}\n"
+    # 布林带分析
+    if 'bb_position' in last_row:
+        bb_pos = last_row['bb_position']
+        if bb_pos > 0.8:
+            bb_signal = "接近上轨"
+        elif bb_pos < 0.2:
+            bb_signal = "接近下轨"
+        else:
+            bb_signal = "中轨附近"
+        print(f"布林带位置: {bb_pos:.2f} - {bb_signal}")
     
-    # 2. RSI分析
-    rsi_analysis = analyze_rsi(last_row['rsi_14'])
-    analysis += f"📊 RSI指标：{rsi_analysis}\n"
-    
-    # 3. 布林带分析
-    bb_analysis = analyze_bollinger_bands(last_row['bb_position'])
-    analysis += f"📉 布林带位置：{bb_analysis}\n"
-    
-    # 4. MACD分析
+    # MACD分析
     if 'macd_histogram' in last_row:
-        macd_analysis = analyze_macd(last_row['macd_histogram'])
-        analysis += f"📊 MACD指标：{macd_analysis}\n"
+        macd = last_row['macd_histogram']
+        if macd > 0:
+            macd_signal = "多头信号"
+        else:
+            macd_signal = "空头信号"
+        print(f"MACD柱状图: {macd:.6f} - {macd_signal}")
     
-    # 5. KDJ分析
-    if 'kdj_k' in last_row and 'kdj_d' in last_row:
-        kdj_analysis = analyze_kdj(last_row['kdj_k'], last_row['kdj_d'], last_row['kdj_j'])
-        analysis += f"📊 KDJ指标：{kdj_analysis}\n"
+    # 成交量分析
+    if 'volume_ma_ratio' in last_row:
+        vol_ratio = last_row['volume_ma_ratio']
+        if vol_ratio > 1.5:
+            vol_signal = "放量"
+        elif vol_ratio < 0.5:
+            vol_signal = "缩量"
+        else:
+            vol_signal = "正常"
+        print(f"成交量比率: {vol_ratio:.2f} - {vol_signal}")
     
-    # 6. 移动平均线分析
-    if 'ma5_ratio' in last_row and 'ma10_ratio' in last_row:
-        ma_analysis = analyze_moving_averages(last_row['ma5_ratio'], last_row['ma10_ratio'], last_row['ma20_ratio'])
-        analysis += f"📈 移动平均线：{ma_analysis}\n"
-    
-    # 7. 成交量分析
-    volume_analysis = analyze_volume(last_5)
-    analysis += f"📊 成交量趋势：{volume_analysis}\n"
-    
-    # 8. 动量分析
+    # 动量分析
     if 'momentum_5' in last_row:
-        momentum_analysis = analyze_momentum(last_row['momentum_5'], last_row['momentum_10'])
-        analysis += f"📊 动量指标：{momentum_analysis}\n"
-    
-    # 9. 综合判断
-    overall_analysis = get_overall_analysis(change_ratio, direction, last_row)
-    analysis += f"🎯 综合判断：{overall_analysis}\n"
-    
-    return analysis
-
-def analyze_price_trend(last_5: pd.DataFrame):
-    """分析价格趋势"""
-    closes = last_5['close'].values
-    if len(closes) < 3:
-        return "数据不足"
-    
-    # 计算最近3根K线的趋势
-    recent_trend = (closes[-1] - closes[-3]) / closes[-3] * 100
-    
-    if recent_trend > 0.5:
-        return f"强势上涨趋势 (+{recent_trend:.2f}%)"
-    elif recent_trend > 0.1:
-        return f"温和上涨趋势 (+{recent_trend:.2f}%)"
-    elif recent_trend < -0.5:
-        return f"强势下跌趋势 ({recent_trend:.2f}%)"
-    elif recent_trend < -0.1:
-        return f"温和下跌趋势 ({recent_trend:.2f}%)"
-    else:
-        return f"横盘整理 ({recent_trend:.2f}%)"
-
-def analyze_rsi(rsi: float):
-    """分析RSI指标"""
-    if rsi > 70:
-        return f"超买区域 ({rsi:.1f})，可能回调"
-    elif rsi > 60:
-        return f"偏强区域 ({rsi:.1f})，上涨动能较强"
-    elif rsi < 30:
-        return f"超卖区域 ({rsi:.1f})，可能反弹"
-    elif rsi < 40:
-        return f"偏弱区域 ({rsi:.1f})，下跌压力较大"
-    else:
-        return f"中性区域 ({rsi:.1f})，无明显方向"
-
-def analyze_bollinger_bands(bb_position: float):
-    """分析布林带位置"""
-    if bb_position > 0.8:
-        return f"接近上轨 ({bb_position:.3f})，可能遇阻回落"
-    elif bb_position > 0.6:
-        return f"偏上位置 ({bb_position:.3f})，上涨空间有限"
-    elif bb_position < 0.2:
-        return f"接近下轨 ({bb_position:.3f})，可能获得支撑"
-    elif bb_position < 0.4:
-        return f"偏下位置 ({bb_position:.3f})，下跌空间有限"
-    else:
-        return f"中轨附近 ({bb_position:.3f})，方向不明"
-
-def analyze_volume(last_5: pd.DataFrame):
-    """分析成交量趋势"""
-    volumes = last_5['volume'].values
-    if len(volumes) < 3:
-        return "数据不足"
-    
-    recent_avg = volumes[-3:].mean()
-    current_volume = volumes[-1]
-    
-    volume_ratio = current_volume / recent_avg
-    
-    if volume_ratio > 1.5:
-        return f"成交量放大 ({volume_ratio:.2f}倍)，市场活跃"
-    elif volume_ratio > 1.2:
-        return f"成交量增加 ({volume_ratio:.2f}倍)，交投活跃"
-    elif volume_ratio < 0.7:
-        return f"成交量萎缩 ({volume_ratio:.2f}倍)，市场观望"
-    else:
-        return f"成交量正常 ({volume_ratio:.2f}倍)，交投平稳"
+        momentum = last_row['momentum_5']
+        if momentum > 0.02:
+            mom_signal = "强势上涨"
+        elif momentum < -0.02:
+            mom_signal = "强势下跌"
+        else:
+            mom_signal = "震荡"
+        print(f"5日动量: {momentum:.3f} - {mom_signal}")
 
 def get_overall_analysis(change_ratio: float, direction: str, last_row: pd.Series):
-    """综合判断"""
-    abs_change = abs(change_ratio) * 100
+    """综合分析"""
+    print(f"\n=== 综合分析 ===")
     
-    if abs_change > 3:
-        intensity = "较大"
-        confidence = "中等"
-    elif abs_change > 1.5:
-        intensity = "中等"
-        confidence = "较高"
-    elif abs_change > 0.5:
-        intensity = "温和"
-        confidence = "高"
-    else:
-        intensity = "轻微"
-        confidence = "很高"
-    
+    # 根据预测方向给出建议
     if direction == "涨":
-        return f"基于技术指标综合分析，预计将出现{intensity}上涨，置信度{confidence}，建议关注支撑位"
+        print("📈 看涨信号:")
+        print("  - 建议关注买入机会")
+        print("  - 设置止损位保护利润")
+    elif direction == "跌":
+        print("📉 看跌信号:")
+        print("  - 建议谨慎操作")
+        print("  - 可以考虑减仓或观望")
     else:
-        return f"基于技术指标综合分析，预计将出现{intensity}下跌，置信度{confidence}，建议关注阻力位"
+        print("➡️ 震荡信号:")
+        print("  - 市场可能横盘整理")
+        print("  - 建议等待明确方向")
+    
+    # 风险评估
+    risk_level = "中等"
+    if abs(change_ratio) > 0.01:  # 超过1%
+        risk_level = "较高"
+    elif abs(change_ratio) < 0.002:  # 小于0.2%
+        risk_level = "较低"
+    
+    print(f"风险评估: {risk_level}")
 
-def analyze_macd(macd_histogram: float):
-    """分析MACD指标"""
-    if macd_histogram > 0:
-        if macd_histogram > 100:
-            return f"强势上涨信号 ({macd_histogram:.2f})"
-        else:
-            return f"温和上涨信号 ({macd_histogram:.2f})"
-    else:
-        if macd_histogram < -100:
-            return f"强势下跌信号 ({macd_histogram:.2f})"
-        else:
-            return f"温和下跌信号 ({macd_histogram:.2f})"
-
-def analyze_kdj(k: float, d: float, j: float):
-    """分析KDJ指标"""
-    if k > 80 and d > 80:
-        return f"超买区域 (K:{k:.1f}, D:{d:.1f}, J:{j:.1f})，可能回调"
-    elif k < 20 and d < 20:
-        return f"超卖区域 (K:{k:.1f}, D:{d:.1f}, J:{j:.1f})，可能反弹"
-    elif k > d:
-        return f"金叉信号 (K:{k:.1f}, D:{d:.1f}, J:{j:.1f})，上涨概率较大"
-    else:
-        return f"死叉信号 (K:{k:.1f}, D:{d:.1f}, J:{j:.1f})，下跌概率较大"
-
-def analyze_moving_averages(ma5_ratio: float, ma10_ratio: float, ma20_ratio: float):
-    """分析移动平均线"""
-    if ma5_ratio > 1.01 and ma10_ratio > 1.01:
-        return f"强势上涨 (MA5:{ma5_ratio:.3f}, MA10:{ma10_ratio:.3f}, MA20:{ma20_ratio:.3f})"
-    elif ma5_ratio < 0.99 and ma10_ratio < 0.99:
-        return f"强势下跌 (MA5:{ma5_ratio:.3f}, MA10:{ma10_ratio:.3f}, MA20:{ma20_ratio:.3f})"
-    elif ma5_ratio > ma10_ratio > ma20_ratio:
-        return f"多头排列 (MA5:{ma5_ratio:.3f}, MA10:{ma10_ratio:.3f}, MA20:{ma20_ratio:.3f})"
-    elif ma5_ratio < ma10_ratio < ma20_ratio:
-        return f"空头排列 (MA5:{ma5_ratio:.3f}, MA10:{ma10_ratio:.3f}, MA20:{ma20_ratio:.3f})"
-    else:
-        return f"震荡整理 (MA5:{ma5_ratio:.3f}, MA10:{ma10_ratio:.3f}, MA20:{ma20_ratio:.3f})"
-
-def analyze_momentum(momentum_5: float, momentum_10: float):
-    """分析动量指标"""
-    if momentum_5 > 0.02 and momentum_10 > 0.02:
-        return f"强势上涨动量 (5日:{momentum_5*100:.2f}%, 10日:{momentum_10*100:.2f}%)"
-    elif momentum_5 < -0.02 and momentum_10 < -0.02:
-        return f"强势下跌动量 (5日:{momentum_5*100:.2f}%, 10日:{momentum_10*100:.2f}%)"
-    elif momentum_5 > 0:
-        return f"短期上涨动量 (5日:{momentum_5*100:.2f}%, 10日:{momentum_10*100:.2f}%)"
-    else:
-        return f"短期下跌动量 (5日:{momentum_5*100:.2f}%, 10日:{momentum_10*100:.2f}%)"
+def main():
+    """主函数"""
+    # 加载最新数据
+    df = load_and_preprocess(DATA_PATH)
+    
+    if df is None or len(df) < WINDOW_SIZE + 1:
+        print("❌ 数据不足，无法进行预测")
+        return
+    
+    # 进行预测
+    result = predict_next_candle_improved(df)
+    
+    if result is None:
+        print("❌ 预测失败")
+        return
+    
+    # 分析预测原因
+    analyze_prediction_reason(df, result['change_ratio'], result['direction'])
+    
+    # 综合分析
+    get_overall_analysis(result['change_ratio'], result['direction'], df.iloc[-1])
+    
+    print(f"\n✅ 预测完成！")
 
 if __name__ == "__main__":
-    df = pd.read_csv(DATA_PATH)
-    # 重命名列以匹配预处理函数
-    df = df.rename(columns={
-        'closeTime': 'timestamp',
-        'open': 'open',
-        'high': 'high',
-        'low': 'low',
-        'close': 'close',
-        'volume': 'volume'
-    })
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    df = df.sort_values(by='timestamp').reset_index(drop=True)
-    
-    # 打印最后一根K线
-    print("【最后一根K线】")
-    print(df.iloc[-1][['timestamp', 'open', 'high', 'low', 'close', 'volume']])
-
-    # 预测下一根K线
-    result = predict_next_candle_improved(df)
-    if result:
-        print("\n【预测的下一根K线】")
-        print(result)
-        # 如果数据集里有真实的下一根K线，也打印出来
-        next_time = pd.to_datetime(result["预测时间"])
-        real_next = df[df['timestamp'] == next_time]
-        if not real_next.empty:
-            print("\n【真实的下一根K线】")
-            print(real_next.iloc[0][['timestamp', 'open', 'high', 'low', 'close', 'volume']])
-        else:
-            print("\n【真实的下一根K线】")
-            print("数据集中没有下一根K线（可能是最新一根）")
-    else:
-        print("预测失败，请先训练模型") 
+    main() 

@@ -1,135 +1,149 @@
-# technical_indicators.py
+# technical_indicators.py - 改进版技术指标计算
 import pandas as pd
 import numpy as np
-from config_improved import FEATURE_COLUMNS
+from typing import List
 
-def calculate_rsi(df, period=14):
-    """计算相对强弱指数"""
-    delta = df['close'].diff()
+def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    添加改进的技术指标，使用更平稳的特征
+    """
+    df = df.copy()
+    
+    # ===== 基础平稳特征 =====
+    # 1. 对数收益率 (平稳特征)
+    df['log_return'] = np.log(df['close'] / df['close'].shift(1))
+    
+    # 2. 高低价比率 (平稳特征)
+    df['high_low_ratio'] = (df['high'] - df['low']) / df['close']
+    
+    # 3. 成交量对数收益率 (平稳特征)
+    df['volume_log_return'] = np.log(df['volume'] / df['volume'].shift(1))
+    
+    # 4. 价格在当日区间的位置 (平稳特征)
+    df['price_position'] = (df['close'] - df['low']) / (df['high'] - df['low'])
+    
+    # ===== 技术指标 =====
+    # 5. RSI (14期)
+    df['rsi_14'] = calculate_rsi(df['close'], 14)
+    
+    # 6. 布林带位置
+    df['bb_position'] = calculate_bollinger_position(df['close'], 20)
+    
+    # 7. MACD
+    df['macd_histogram'] = calculate_macd_histogram(df['close'])
+    
+    # 8. 移动平均线交叉信号
+    df['ma_cross_signal'] = calculate_ma_cross_signal(df['close'])
+    
+    # 9. 成交量与移动平均线比率
+    df['volume_ma_ratio'] = calculate_volume_ma_ratio(df['volume'])
+    
+    # 10. 5日动量
+    df['momentum_5'] = calculate_momentum(df['close'], 5)
+    
+    # ===== Z-score标准化 =====
+    # 对需要标准化的指标进行z-score计算
+    rolling_window = 100  # 滚动窗口大小
+    
+    # RSI的z-score
+    df['rsi_14_zscore'] = calculate_zscore(df['rsi_14'], rolling_window)
+    
+    # MACD柱状图的z-score
+    df['macd_histogram_zscore'] = calculate_zscore(df['macd_histogram'], rolling_window)
+    
+    # 动量的z-score
+    df['momentum_5_zscore'] = calculate_zscore(df['momentum_5'], rolling_window)
+    
+    # 清理NaN值
+    df = df.ffill().bfill()
+    
+    return df
+
+def calculate_rsi(prices: pd.Series, period: int = 14) -> pd.Series:
+    """计算RSI指标"""
+    delta = prices.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-def calculate_bollinger_bands(df, period=20, std_dev=2):
-    """计算布林带"""
-    sma = df['close'].rolling(window=period).mean()
-    std = df['close'].rolling(window=period).std()
-    bb_upper = sma + (std * std_dev)
-    bb_lower = sma - (std * std_dev)
-    bb_position = (df['close'] - bb_lower) / (bb_upper - bb_lower)
-    return bb_position
+def calculate_bollinger_position(prices: pd.Series, period: int = 20) -> pd.Series:
+    """计算价格在布林带中的位置 (0-1范围)"""
+    ma = prices.rolling(window=period).mean()
+    std = prices.rolling(window=period).std()
+    upper_band = ma + (2 * std)
+    lower_band = ma - (2 * std)
+    
+    # 计算位置：0=下轨，0.5=中轨，1=上轨
+    position = (prices - lower_band) / (upper_band - lower_band)
+    return position.clip(0, 1)  # 限制在0-1范围内
 
-def calculate_macd(df, fast=12, slow=26, signal=9):
-    """计算MACD指标"""
-    ema_fast = df['close'].ewm(span=fast).mean()
-    ema_slow = df['close'].ewm(span=slow).mean()
+def calculate_macd_histogram(prices: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> pd.Series:
+    """计算MACD柱状图"""
+    ema_fast = prices.ewm(span=fast).mean()
+    ema_slow = prices.ewm(span=slow).mean()
     macd_line = ema_fast - ema_slow
     signal_line = macd_line.ewm(span=signal).mean()
-    macd_histogram = macd_line - signal_line
-    return macd_histogram
+    histogram = macd_line - signal_line
+    return histogram
 
-def calculate_kdj(df, n=9, m1=3, m2=3):
-    """计算KDJ指标"""
-    low_min = df['low'].rolling(window=n).min()
-    high_max = df['high'].rolling(window=n).max()
+def calculate_ma_cross_signal(prices: pd.Series, short_period: int = 5, long_period: int = 20) -> pd.Series:
+    """计算均线交叉信号 (-1=死叉, 0=无信号, 1=金叉)"""
+    ma_short = prices.rolling(window=short_period).mean()
+    ma_long = prices.rolling(window=long_period).mean()
     
-    rsv = (df['close'] - low_min) / (high_max - low_min) * 100
-    k = rsv.ewm(com=m1-1).mean()
-    d = k.ewm(com=m2-1).mean()
-    j = 3 * k - 2 * d
+    # 计算交叉信号
+    signal = pd.Series(0, index=prices.index)
+    signal[(ma_short > ma_long) & (ma_short.shift(1) <= ma_long.shift(1))] = 1   # 金叉
+    signal[(ma_short < ma_long) & (ma_short.shift(1) >= ma_long.shift(1))] = -1  # 死叉
     
-    return k, d, j
+    return signal
 
-def calculate_moving_averages(df):
-    """计算移动平均线"""
-    ma5 = df['close'].rolling(window=5).mean()
-    ma10 = df['close'].rolling(window=10).mean()
-    ma20 = df['close'].rolling(window=20).mean()
-    
-    # 计算价格相对于移动平均线的位置
-    ma5_ratio = df['close'] / ma5
-    ma10_ratio = df['close'] / ma10
-    ma20_ratio = df['close'] / ma20
-    
-    return ma5_ratio, ma10_ratio, ma20_ratio
+def calculate_volume_ma_ratio(volume: pd.Series, period: int = 20) -> pd.Series:
+    """计算成交量与移动平均线比率"""
+    volume_ma = volume.rolling(window=period).mean()
+    ratio = volume / volume_ma
+    return ratio
 
-def calculate_volume_indicators(df):
-    """计算成交量指标"""
-    # 成交量移动平均
-    volume_ma5 = df['volume'].rolling(window=5).mean()
-    volume_ma10 = df['volume'].rolling(window=10).mean()
-    
-    # 成交量比率
-    volume_ratio_5 = df['volume'] / volume_ma5
-    volume_ratio_10 = df['volume'] / volume_ma10
-    
-    # 价量关系
-    price_volume_trend = (df['close'] - df['close'].shift(1)) * df['volume']
-    pvt_ma = price_volume_trend.rolling(window=5).mean()
-    
-    return volume_ratio_5, volume_ratio_10, pvt_ma
-
-def calculate_momentum_indicators(df):
+def calculate_momentum(prices: pd.Series, period: int = 5) -> pd.Series:
     """计算动量指标"""
-    # 价格动量
-    momentum_5 = df['close'] / df['close'].shift(5) - 1
-    momentum_10 = df['close'] / df['close'].shift(10) - 1
-    
-    # 价格变化率
-    roc_5 = (df['close'] - df['close'].shift(5)) / df['close'].shift(5) * 100
-    roc_10 = (df['close'] - df['close'].shift(10)) / df['close'].shift(10) * 100
-    
-    return momentum_5, momentum_10, roc_5, roc_10
+    return prices / prices.shift(period) - 1
 
-def add_technical_indicators(df):
-    """添加更多技术指标到DataFrame"""
-    df = df.copy()
+def calculate_zscore(series: pd.Series, window: int = 100) -> pd.Series:
+    """计算滚动z-score标准化"""
+    rolling_mean = series.rolling(window=window).mean()
+    rolling_std = series.rolling(window=window).std()
+    zscore = (series - rolling_mean) / rolling_std
+    return zscore
+
+def get_feature_importance_analysis(df: pd.DataFrame) -> dict:
+    """
+    分析特征的重要性，帮助识别冗余特征
+    """
+    from config_improved import FEATURE_COLUMNS
     
-    # 修复FutureWarning
-    df = df.bfill().ffill()
+    # 计算特征间的相关性
+    feature_df = df[FEATURE_COLUMNS].copy()
+    correlation_matrix = feature_df.corr()
     
-    # 基础指标
-    if 'rsi_14' in FEATURE_COLUMNS:
-        df['rsi_14'] = calculate_rsi(df, 14)
+    # 找出高相关性的特征对
+    high_corr_pairs = []
+    for i in range(len(correlation_matrix.columns)):
+        for j in range(i+1, len(correlation_matrix.columns)):
+            corr_value = correlation_matrix.iloc[i, j]
+            if abs(corr_value) > 0.8:  # 高相关性阈值
+                high_corr_pairs.append({
+                    'feature1': correlation_matrix.columns[i],
+                    'feature2': correlation_matrix.columns[j],
+                    'correlation': corr_value
+                })
     
-    if 'bb_position' in FEATURE_COLUMNS:
-        df['bb_position'] = calculate_bollinger_bands(df)
+    # 计算每个特征的方差（低方差可能表示信息量少）
+    feature_variance = feature_df.var().to_dict()
     
-    if 'close_open_ratio' in FEATURE_COLUMNS:
-        df['close_open_ratio'] = df['close'] / df['open']
-    
-    # 新增指标
-    if 'macd_histogram' in FEATURE_COLUMNS:
-        df['macd_histogram'] = calculate_macd(df)
-    
-    if 'kdj_k' in FEATURE_COLUMNS:
-        k, d, j = calculate_kdj(df)
-        df['kdj_k'] = k
-        df['kdj_d'] = d
-        df['kdj_j'] = j
-    
-    if 'ma5_ratio' in FEATURE_COLUMNS:
-        ma5_ratio, ma10_ratio, ma20_ratio = calculate_moving_averages(df)
-        df['ma5_ratio'] = ma5_ratio
-        df['ma10_ratio'] = ma10_ratio
-        df['ma20_ratio'] = ma20_ratio
-    
-    if 'volume_ratio_5' in FEATURE_COLUMNS:
-        volume_ratio_5, volume_ratio_10, pvt_ma = calculate_volume_indicators(df)
-        df['volume_ratio_5'] = volume_ratio_5
-        df['volume_ratio_10'] = volume_ratio_10
-        df['pvt_ma'] = pvt_ma
-    
-    if 'momentum_5' in FEATURE_COLUMNS:
-        momentum_5, momentum_10, roc_5, roc_10 = calculate_momentum_indicators(df)
-        df['momentum_5'] = momentum_5
-        df['momentum_10'] = momentum_10
-        df['roc_5'] = roc_5
-        df['roc_10'] = roc_10
-    
-    # 处理NaN值
-    df = df.bfill().ffill()
-    
-    return df 
+    return {
+        'high_correlation_pairs': high_corr_pairs,
+        'feature_variance': feature_variance,
+        'total_features': len(FEATURE_COLUMNS)
+    } 

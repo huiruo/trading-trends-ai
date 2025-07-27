@@ -9,33 +9,42 @@ LEARNING_RATE = 0.001  # 提高学习率
 BATCH_SIZE = 64  # 适中的批次大小
 
 # 数据路径
-# DATA_PATH = "dataset/btc_1h.csv"
-# DATA_PATH = "dataset/btc_1hB.csv"
-# DATA_PATH = "dataset/btc_1hC.csv"
 DATA_PATH = "dataset/btc_1h_sorted.csv"
 
-# 基础特征 - 只保留最核心的OHLCV
-BASE_FEATURES = ['open', 'high', 'low', 'close', 'volume']
+# ===== 模型类型配置 =====
+# 重要：只能选择一种模式，不能混用
+USE_CLASSIFICATION = True  # True=分类模型，False=回归模型
 
-# 技术指标特征 - 简化特征组合
-TECHNICAL_FEATURES = [
-    'rsi_14',         # RSI指标 (超买超卖)
-    'bb_position',    # 布林带位置 (价格位置)
-    'close_open_ratio', # 收盘开盘比 (K线形态)
-    'macd_histogram', # MACD柱状图 (趋势)
-    'ma5_ratio',      # 5日均线比率 (短期趋势)
-    'volume_ratio_5'  # 5日成交量比率 (成交量)
+# ===== 分类模型配置 =====
+CLASSIFICATION_THRESHOLD = 0.0005  # 降低阈值到0.05%，更敏感
+NUM_CLASSES = 2  # 2分类：跌、涨 (移除平盘)
+
+# ===== 回归模型配置 =====
+MAX_CHANGE_RATIO = 0.02  # 2%的最大变化幅度限制
+USE_RELATIVE_CHANGE = True  # 使用相对变化率而不是绝对价格
+
+# ===== 特征工程配置 =====
+# 基础价格特征 - 使用对数收益率等平稳特征
+BASE_FEATURES = [
+    'log_return',           # 对数收益率 (平稳)
+    'high_low_ratio',       # 高低价比率 (平稳)
+    'volume_log_return',    # 成交量对数收益率 (平稳)
+    'price_position'        # 价格在当日区间的位置 (平稳)
 ]
 
-# 合并所有特征 - 总共11个特征
+# 技术指标特征 - 使用z-score标准化，减少冗余
+TECHNICAL_FEATURES = [
+    'rsi_14_zscore',        # RSI的z-score (标准化)
+    'bb_position',          # 布林带位置 (0-1范围)
+    'macd_histogram_zscore', # MACD柱状图的z-score
+    'ma_cross_signal',      # 均线交叉信号 (-1,0,1)
+    'volume_ma_ratio',      # 成交量与均线比率
+    'momentum_5_zscore'     # 5日动量的z-score
+]
+
+# 合并所有特征
 FEATURE_COLUMNS = BASE_FEATURES + TECHNICAL_FEATURES
 
-# 训练策略配置 - 使用简单的二分类
-USE_CLASSIFICATION = True  # 使用分类方法
-USE_RELATIVE_CHANGE = False  # 不使用相对变化
-
-# 分类阈值 - 使用更严格的阈值
-CLASSIFICATION_THRESHOLD = 0.002  # 0.2%的变化作为涨跌判断阈值
-
-# 回归配置
-MAX_CHANGE_RATIO = 0.02  # 2%的最大变化幅度限制，更现实的范围
+# ===== 数据预处理配置 =====
+USE_ZSCORE_NORMALIZATION = True  # 使用z-score标准化而不是MinMax
+ROLLING_WINDOW = 100  # z-score计算的滚动窗口
